@@ -12,20 +12,15 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// A example of setting up the HAL module to run simple pointwise array
-// multiplication with the device implemented by different backends via
-// create_sample_driver().
-
+// A example of setting up the HAL mddule to run simple pointwise array
+// multiplication with the dylib driver.
 #include <stdio.h>
 
 #include "iree/base/api.h"
 #include "iree/hal/api.h"
-<<<<<<< HEAD:iree/samples/simple_embedding/simple_embedding.c
-=======
 
 #include "iree/hal/drivers/init.h"
 
->>>>>>> 72e1a5fb4 (staring static embedding test):iree/samples/simple_embedding/simple_embedding_run.c
 #include "iree/modules/hal/hal_module.h"
 #include "iree/vm/api.h"
 #include "iree/vm/bytecode_module.h"
@@ -33,12 +28,7 @@
 // Compiled module embedded here to avoid file IO:
 #include "iree/samples/simple_embedding/simple_embedding_test_bytecode_module_c.h"
 
-// A function to create the HAL device from the different backend targets.
-// The HAL device is returned based on the implementation, and it must be
-// released by the caller.
-extern iree_status_t create_sample_device(iree_hal_device_t** device);
-
-iree_status_t Run() {
+iree_status_t Run(char* hal_driver_name) {
   // TODO(benvanik): move to instance-based registration.
   IREE_RETURN_IF_ERROR(iree_hal_module_register_types());
 
@@ -46,8 +36,6 @@ iree_status_t Run() {
   IREE_RETURN_IF_ERROR(
       iree_vm_instance_create(iree_allocator_system(), &instance));
 
-<<<<<<< HEAD:iree/samples/simple_embedding/simple_embedding.c
-=======
 
   // Register all drivers so it can be selected by the driver name.
   IREE_RETURN_IF_ERROR(iree_hal_register_all_available_drivers(
@@ -60,45 +48,34 @@ iree_status_t Run() {
       iree_hal_driver_registry_default(),
       iree_make_cstring_view(hal_driver_name), iree_allocator_system(),
       &driver));
->>>>>>> 72e1a5fb4 (staring static embedding test):iree/samples/simple_embedding/simple_embedding_run.c
   iree_hal_device_t* device = NULL;
-  IREE_RETURN_IF_ERROR(create_sample_device(&device), "create device");
+  IREE_RETURN_IF_ERROR(iree_hal_driver_create_default_device(
+      driver, iree_allocator_system(), &device));
   iree_vm_module_t* hal_module = NULL;
   IREE_RETURN_IF_ERROR(
       iree_hal_module_create(device, iree_allocator_system(), &hal_module));
+  iree_hal_driver_release(driver);
 
   // Load bytecode module from the embedded data.
-<<<<<<< HEAD:iree/samples/simple_embedding/simple_embedding.c
-#if IREE_ARCH_RISCV_64
-  const struct iree_file_toc_t* module_file_toc =
-      iree_samples_simple_embedding_rv64_test_module_create();
-#else
-=======
->>>>>>> 72e1a5fb4 (staring static embedding test):iree/samples/simple_embedding/simple_embedding_run.c
   // Note the setup here only supports native build. The bytecode is not built
   // for the cross-compile execution. The code can be compiled but it will
   // hit runtime error in a cross-compile environment.
   const struct iree_file_toc_t* module_file_toc =
-<<<<<<< HEAD:iree/samples/simple_embedding/simple_embedding.c
-      iree_samples_simple_embedding_test_module_create();
-#endif
-=======
       simple_embedding_test_bytecode_module_c_create();
->>>>>>> 72e1a5fb4 (staring static embedding test):iree/samples/simple_embedding/simple_embedding_run.c
 
   iree_vm_module_t* bytecode_module = NULL;
-  iree_const_byte_span_t module_data =
-      iree_make_const_byte_span(module_file_toc->data, module_file_toc->size);
+  iree_const_byte_span_t module_data = {(const uint8_t*)module_file_toc->data,
+                                        module_file_toc->size};
   IREE_RETURN_IF_ERROR(iree_vm_bytecode_module_create(
       module_data, iree_allocator_null(), iree_allocator_system(),
       &bytecode_module));
 
   // Allocate a context that will hold the module state across invocations.
+  const int kVmModuleNum = 2;
   iree_vm_context_t* context = NULL;
   iree_vm_module_t* modules[] = {hal_module, bytecode_module};
   IREE_RETURN_IF_ERROR(iree_vm_context_create_with_modules(
-      instance, &modules[0], IREE_ARRAYSIZE(modules), iree_allocator_system(),
-      &context));
+      instance, &modules[0], kVmModuleNum, iree_allocator_system(), &context));
   iree_vm_module_release(hal_module);
   iree_vm_module_release(bytecode_module);
 
@@ -137,10 +114,10 @@ iree_status_t Run() {
   iree_hal_buffer_view_t* arg0_buffer_view = NULL;
   iree_hal_buffer_view_t* arg1_buffer_view = NULL;
   IREE_RETURN_IF_ERROR(iree_hal_buffer_view_create(
-      arg0_buffer, shape, IREE_ARRAYSIZE(shape), IREE_HAL_ELEMENT_TYPE_FLOAT_32,
+      arg0_buffer, IREE_HAL_ELEMENT_TYPE_FLOAT_32, shape, IREE_ARRAYSIZE(shape),
       &arg0_buffer_view));
   IREE_RETURN_IF_ERROR(iree_hal_buffer_view_create(
-      arg1_buffer, shape, IREE_ARRAYSIZE(shape), IREE_HAL_ELEMENT_TYPE_FLOAT_32,
+      arg1_buffer, IREE_HAL_ELEMENT_TYPE_FLOAT_32, shape, IREE_ARRAYSIZE(shape),
       &arg1_buffer_view));
   iree_hal_buffer_release(arg0_buffer);
   iree_hal_buffer_release(arg1_buffer);
@@ -203,13 +180,18 @@ iree_status_t Run() {
   return iree_ok_status();
 }
 
-int main() {
-  const iree_status_t result = Run();
+int main(int argc, char** argv) {
+  if (argc < 2) {
+    printf("usage: simple_embedding_run <HAL driver name>\n");
+    return -1;
+  }
+  char* hal_driver_name = argv[1];
+  const iree_status_t result = Run(hal_driver_name);
   if (!iree_status_is_ok(result)) {
     char* message;
     size_t message_length;
     iree_status_to_string(result, &message, &message_length);
-    fprintf(stderr, "simple_embedding_run failed: %s\n", message);
+    printf("simple_embedding_run failed: %s\n", message);
     iree_allocator_free(iree_allocator_system(), message);
     return -1;
   }

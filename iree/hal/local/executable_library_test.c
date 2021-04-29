@@ -111,5 +111,10 @@ int main(int argc, char** argv) {
     IREE_ASSERT_EQ(ret0[i], ret0_expected[i], "math is hard");
     all_match = all_match && ret0[i] == ret0_expected[i];
   }
+
+  if (all_match) {
+    printf("executable library test passed!\n");
+  }
+
   return all_match ? 0 : 1;
 }
