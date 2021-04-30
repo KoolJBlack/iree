@@ -28,6 +28,8 @@
 // Compiled module embedded here to avoid file IO:
 #include "iree/samples/simple_embedding/simple_embedding_test_bytecode_module_c.h"
 
+#include "iree/samples/simple_embedding/static_embedding_module.h"
+
 iree_status_t Run(char* hal_driver_name) {
   // TODO(benvanik): move to instance-based registration.
   IREE_RETURN_IF_ERROR(iree_hal_module_register_types());
@@ -36,6 +38,13 @@ iree_status_t Run(char* hal_driver_name) {
   IREE_RETURN_IF_ERROR(
       iree_vm_instance_create(iree_allocator_system(), &instance));
 
+
+  union {
+    const iree_hal_executable_library_header_t** header;
+    const iree_hal_executable_library_v0_t* v0;
+  } library;
+
+  library.header = iree_hal_executable_library_query(IREE_HAL_EXECUTABLE_LIBRARY_LATEST_VERSION, NULL);
 
   // Register all drivers so it can be selected by the driver name.
   IREE_RETURN_IF_ERROR(iree_hal_register_all_available_drivers(
