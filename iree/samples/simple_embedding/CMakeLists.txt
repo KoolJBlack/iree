@@ -59,13 +59,20 @@ iree_cc_binary(
     "simple_embedding.c"
   DEPS
     ::simple_embedding_test_bytecode_module_c
+<<<<<<< HEAD
     ::simple_embedding_test_llvm_aot_rv64
     iree::base
     iree::hal
     iree::hal::vulkan::registration
+=======
+    iree::base::api
+    iree::hal::api
+    iree::hal::drivers
+>>>>>>> 1a745beaa (Successful compiled with new cmake rule for linking object file)
     iree::modules::hal
     iree::vm
     iree::vm::bytecode_module
+    ${CMAKE_CURRENT_SOURCE_DIR}/static_embedding_module.o
 )
 
 iree_cc_binary(

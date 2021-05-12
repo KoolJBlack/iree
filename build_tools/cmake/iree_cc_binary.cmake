@@ -28,6 +28,7 @@ include(CMakeParseArguments)
 # LINKOPTS: List of link options
 # TESTONLY: for testing; won't compile when tests are disabled
 # HOSTONLY: host only; compile using host toolchain when cross-compiling
+# OBJECTS: just list object files to link
 #
 # Note:
 # iree_cc_binary will create a binary called ${PACKAGE_NAME}_${NAME}, e.g.
@@ -134,6 +135,12 @@ function(iree_cc_binary)
     PUBLIC
       ${_RULE_DEPS}
   )
+
+  # target_link_libraries(${_NAME},
+  #   PUBLIC
+  #   ${_RULE_OBJECTS}
+  # )
+
   iree_add_data_dependencies(NAME ${_NAME} DATA ${_RULE_DATA})
 
   # Add all IREE targets to a folder in the IDE for organization.
