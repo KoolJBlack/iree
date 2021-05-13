@@ -20,18 +20,16 @@
 
 #include "iree/base/api.h"
 #include "iree/hal/api.h"
-<<<<<<< HEAD:iree/samples/simple_embedding/simple_embedding.c
-=======
-
-#include "iree/hal/drivers/init.h"
-
->>>>>>> 72e1a5fb4 (staring static embedding test):iree/samples/simple_embedding/simple_embedding_run.c
 #include "iree/modules/hal/hal_module.h"
 #include "iree/vm/api.h"
 #include "iree/vm/bytecode_module.h"
 
 // Compiled module embedded here to avoid file IO:
+#if IREE_ARCH_RISCV_64
+#include "iree/samples/simple_embedding/simple_embedding_test_llvm_aot_rv64.h"
+#else
 #include "iree/samples/simple_embedding/simple_embedding_test_bytecode_module_c.h"
+#endif
 
 // A function to create the HAL device from the different backend targets.
 // The HAL device is returned based on the implementation, and it must be
@@ -46,21 +44,6 @@ iree_status_t Run() {
   IREE_RETURN_IF_ERROR(
       iree_vm_instance_create(iree_allocator_system(), &instance));
 
-<<<<<<< HEAD:iree/samples/simple_embedding/simple_embedding.c
-=======
-
-  // Register all drivers so it can be selected by the driver name.
-  IREE_RETURN_IF_ERROR(iree_hal_register_all_available_drivers(
-      iree_hal_driver_registry_default()));
-
-  // Create the hal driver from the name. The driver name can be assigned as a
-  // hard-coded char array such as "dylib" as well.
-  iree_hal_driver_t* driver = NULL;
-  IREE_RETURN_IF_ERROR(iree_hal_driver_registry_try_create_by_name(
-      iree_hal_driver_registry_default(),
-      iree_make_cstring_view(hal_driver_name), iree_allocator_system(),
-      &driver));
->>>>>>> 72e1a5fb4 (staring static embedding test):iree/samples/simple_embedding/simple_embedding_run.c
   iree_hal_device_t* device = NULL;
   IREE_RETURN_IF_ERROR(create_sample_device(&device), "create device");
   iree_vm_module_t* hal_module = NULL;
@@ -68,23 +51,16 @@ iree_status_t Run() {
       iree_hal_module_create(device, iree_allocator_system(), &hal_module));
 
   // Load bytecode module from the embedded data.
-<<<<<<< HEAD:iree/samples/simple_embedding/simple_embedding.c
 #if IREE_ARCH_RISCV_64
   const struct iree_file_toc_t* module_file_toc =
       iree_samples_simple_embedding_rv64_test_module_create();
 #else
-=======
->>>>>>> 72e1a5fb4 (staring static embedding test):iree/samples/simple_embedding/simple_embedding_run.c
   // Note the setup here only supports native build. The bytecode is not built
   // for the cross-compile execution. The code can be compiled but it will
   // hit runtime error in a cross-compile environment.
   const struct iree_file_toc_t* module_file_toc =
-<<<<<<< HEAD:iree/samples/simple_embedding/simple_embedding.c
       iree_samples_simple_embedding_test_module_create();
 #endif
-=======
-      simple_embedding_test_bytecode_module_c_create();
->>>>>>> 72e1a5fb4 (staring static embedding test):iree/samples/simple_embedding/simple_embedding_run.c
 
   iree_vm_module_t* bytecode_module = NULL;
   iree_const_byte_span_t module_data =

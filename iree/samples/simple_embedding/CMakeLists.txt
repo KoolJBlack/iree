@@ -53,22 +53,56 @@ iree_cc_binary(
 
 iree_cc_binary(
   NAME
+    simple_embedding_static
+  SRCS
+    "device_static.c"
+    "simple_embedding.c"
+  DEPS
+    ::simple_embedding_test_bytecode_module_c
+    ::simple_embedding_test_llvm_aot_rv64
+    iree::base
+    iree::hal
+    iree::hal::local
+    iree::hal::local::loaders::embedded_library_loader
+    iree::hal::local::loaders::legacy_library_loader
+    iree::hal::local::loaders::static_library_loader
+    iree::hal::local::task_driver
+    iree::modules::hal
+    iree::task::api
+    iree::vm
+    iree::vm::bytecode_module
+    ${CMAKE_CURRENT_SOURCE_DIR}/static_embedding_module.o
+)
+
+
+iree_cc_binary(
+  NAME
+    static_embedding_run
+  SRCS
+    "static_embedding_run.c"
+  DEPS
+    ::simple_embedding_test_bytecode_module_c
+    iree::base
+    iree::hal
+    iree::hal::drivers
+    iree::modules::hal
+    iree::vm
+    iree::vm::bytecode_module
+    ${CMAKE_CURRENT_SOURCE_DIR}/static_embedding_module.o
+)
+
+iree_cc_binary(
+  NAME
     simple_embedding_vulkan
   SRCS
     "device_vulkan.c"
     "simple_embedding.c"
   DEPS
     ::simple_embedding_test_bytecode_module_c
-<<<<<<< HEAD
     ::simple_embedding_test_llvm_aot_rv64
     iree::base
     iree::hal
     iree::hal::vulkan::registration
-=======
-    iree::base::api
-    iree::hal::api
-    iree::hal::drivers
->>>>>>> 1a745beaa (Successful compiled with new cmake rule for linking object file)
     iree::modules::hal
     iree::vm
     iree::vm::bytecode_module

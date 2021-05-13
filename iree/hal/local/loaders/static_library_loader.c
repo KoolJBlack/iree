@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+#include <stdio.h>
 #include "iree/hal/local/loaders/static_library_loader.h"
 
 #include "iree/base/tracing.h"
@@ -205,8 +206,9 @@ static bool iree_hal_static_library_loader_query_support(
     iree_hal_executable_loader_t* base_executable_loader,
     iree_hal_executable_caching_mode_t caching_mode,
     iree_string_view_t executable_format) {
+      //TODO: Update copmiler to lable static libraries as "static".
   return iree_string_view_equal(executable_format,
-                                iree_make_cstring_view("static"));
+                                iree_make_cstring_view("statis"));
 }
 
 static iree_status_t iree_hal_static_library_loader_try_load(
@@ -221,12 +223,17 @@ static iree_status_t iree_hal_static_library_loader_try_load(
       iree_make_string_view((const char*)executable_spec->executable_data.data,
                             executable_spec->executable_data.data_length);
 
+  printf("We're looking for this library (from the spec): %s\n", library_name.data);
+
   // Linear scan of the registered libraries; there's usually only one per
   // module (aka source model) and as such it's a small list and probably not
   // worth optimizing. We could sort the libraries list by name on loader
   // creation to perform a binary-search fairly easily, though, at the cost of
   // the additional code size.
   for (iree_host_size_t i = 0; i < executable_loader->library_count; ++i) {
+    iree_string_view_t test_name = iree_make_cstring_view(executable_loader->libraries[i]->name);
+    printf("Does it match this library: %s\n",test_name.data);
+
     if (iree_string_view_equal(
             library_name,
             iree_make_cstring_view(executable_loader->libraries[i]->name))) {
