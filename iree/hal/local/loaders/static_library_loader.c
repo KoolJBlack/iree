@@ -208,7 +208,7 @@ static bool iree_hal_static_library_loader_query_support(
     iree_string_view_t executable_format) {
       //TODO: Update copmiler to lable static libraries as "static".
   return iree_string_view_equal(executable_format,
-                                iree_make_cstring_view("statis"));
+                                iree_make_cstring_view("DLIB"));
 }
 
 static iree_status_t iree_hal_static_library_loader_try_load(
@@ -224,6 +224,7 @@ static iree_status_t iree_hal_static_library_loader_try_load(
                             executable_spec->executable_data.data_length);
 
   printf("We're looking for this library (from the spec): %s\n", library_name.data);
+  printf("Note, the exectuable spec has size: %d\n", executable_spec->executable_data.data_length);
 
   // Linear scan of the registered libraries; there's usually only one per
   // module (aka source model) and as such it's a small list and probably not
