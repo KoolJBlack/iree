@@ -54,7 +54,7 @@ iree_status_t create_sample_device(iree_hal_device_t** device) {
   const iree_hal_executable_library_header_t** static_library = iree_hal_executable_library_query(IREE_HAL_EXECUTABLE_LIBRARY_LATEST_VERSION, /*reserved=*/NULL);
   const int library_count = 1;
 
-  const iree_hal_executable_library_header_t* libraries[1] = {*static_library};
+  const iree_hal_executable_library_header_t** libraries[1] = {static_library};
 
   iree_hal_executable_loader_t* loaders[1] = {NULL};
   iree_host_size_t loader_count = 0;
