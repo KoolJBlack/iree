@@ -67,6 +67,12 @@ static iree_status_t iree_hal_static_executable_create(
     *out_executable = (iree_hal_executable_t*)executable;
   }
 
+    printf("\nstatic_library_loader::iree_hal_static_executable_create\n");
+    printf("Allocated executable at: %p\n", executable);
+    printf("Executable header pointer: %p\n", executable->library.header);
+    printf("Executable header name: %s\n", executable->library.header->name);
+
+
   IREE_TRACE_ZONE_END(z0);
   return status;
 }
@@ -111,6 +117,19 @@ static iree_status_t iree_hal_static_executable_issue_call(
       z0, executable->identifier.data, executable->identifier.size, ordinal,
       entry_point_name.data, entry_point_name.size, NULL, 0);
 #endif  // IREE_TRACING_FEATURES & IREE_TRACING_FEATURE_INSTRUMENTATION
+
+  printf("\nstatic_library_loader::iree_hal_static_executable_issue_call\n");
+  printf("Received executable at: %p\n", executable);
+  printf("Executable header pointer: %p\n", executable->library.header);
+  printf("Executable header name: %s\n", executable->library.header->name);
+  printf("Now using v0, header pointer: %p\n", executable->library.v0->header);
+
+  printf("ordinal: %d\n", ordinal);
+  printf("dispatch_state: %p\n", dispatch_state);
+  printf("workgroup_id: %p\n", workgroup_id);
+  printf("In Library header: %p\n", library->header);
+  printf("In Library entry point pointer: %p\n", library->entry_points[0]);
+
 
   int ret = library->entry_points[ordinal](dispatch_state, workgroup_id);
 
@@ -160,6 +179,7 @@ iree_status_t iree_hal_static_library_loader_create(
   // version of the IREE compiler that are then linked with an older version of
   // the runtime are difficult to spot otherwise.
   for (iree_host_size_t i = 0; i < library_count; ++i) {
+    printf("Checking library version(%d): %d\n", i, libraries[i]->version);
     if (libraries[i]->version > IREE_HAL_EXECUTABLE_LIBRARY_LATEST_VERSION) {
       IREE_TRACE_ZONE_END(z0);
       return iree_make_status(IREE_STATUS_FAILED_PRECONDITION,
@@ -206,9 +226,9 @@ static bool iree_hal_static_library_loader_query_support(
     iree_hal_executable_loader_t* base_executable_loader,
     iree_hal_executable_caching_mode_t caching_mode,
     iree_string_view_t executable_format) {
-      //TODO: Update copmiler to lable static libraries as "static".
+      //TODO: Update copmiler to label static libraries as "static".
   return iree_string_view_equal(executable_format,
-                                iree_make_cstring_view("DLIB"));
+                                iree_make_cstring_view("static"));
 }
 
 static iree_status_t iree_hal_static_library_loader_try_load(
@@ -233,7 +253,7 @@ static iree_status_t iree_hal_static_library_loader_try_load(
   // the additional code size.
   for (iree_host_size_t i = 0; i < executable_loader->library_count; ++i) {
     iree_string_view_t test_name = iree_make_cstring_view(executable_loader->libraries[i]->name);
-    printf("Does it match this library: %s\n",test_name.data);
+    printf("Does it match my static library: %s\n",test_name.data);
 
     if (iree_string_view_equal(
             library_name,

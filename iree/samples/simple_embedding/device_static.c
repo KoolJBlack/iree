@@ -17,13 +17,13 @@
 #include "iree/base/api.h"
 #include "iree/hal/api.h"
 #include "iree/hal/local/executable_loader.h"
-// #include "iree/hal/local/loaders/embedded_library_loader.h"
-// #include "iree/hal/local/loaders/legacy_library_loader.h"
 #include "iree/hal/local/loaders/static_library_loader.h"
 #include "iree/hal/local/task_device.h"
 #include "iree/task/api.h"
 
 #include "iree/samples/simple_embedding/static_embedding_module.h"
+
+// #define IREE_STATIC_LIBRARY 1
 
 
 iree_status_t create_sample_device(iree_hal_device_t** device) {
@@ -38,14 +38,28 @@ iree_status_t create_sample_device(iree_hal_device_t** device) {
 //   IREE_RETURN_IF_ERROR(iree_hal_legacy_library_loader_create(
 //       iree_allocator_system(), &loaders[loader_count++]));
 
+  const iree_hal_executable_library_v0_t* library = iree_hal_executable_library_query(IREE_HAL_EXECUTABLE_LIBRARY_LATEST_VERSION, /*reserved=*/NULL);
+  printf("Device Static!!!\n");
+  printf("Number of entry points: %d\n", library->entry_point_count);
+  printf("Entry point name: %s\n", library->entry_point_names[0]);
+  printf("Entry point tag: %s\n", library->entry_point_tags[0]);
+  printf("Entry point pointer: %p\n", library->entry_points[0]);
+  printf("Header pointer: %p\n", library->header);
+  printf("--Version: %d\n", library->header->version);
+  printf("--Name: %s\n", library->header->name);
+  printf("--Features: %d\n", library->header->features);
+  printf("--Sanitizer: %d\n", library->header->sanitizer);
+
   // Load the simple embedding library
   const iree_hal_executable_library_header_t** static_library = iree_hal_executable_library_query(IREE_HAL_EXECUTABLE_LIBRARY_LATEST_VERSION, /*reserved=*/NULL);
   const int library_count = 1;
 
+  const iree_hal_executable_library_header_t* libraries[1] = {*static_library};
+
   iree_hal_executable_loader_t* loaders[1] = {NULL};
   iree_host_size_t loader_count = 0;
   IREE_RETURN_IF_ERROR(iree_hal_static_library_loader_create(
-      1, static_library,
+      1, libraries,
       iree_allocator_system(), &loaders[loader_count++]));
 
   iree_task_executor_t* executor = NULL;
