@@ -38,7 +38,7 @@ iree_status_t create_sample_device(iree_hal_device_t** device) {
 //   IREE_RETURN_IF_ERROR(iree_hal_legacy_library_loader_create(
 //       iree_allocator_system(), &loaders[loader_count++]));
 
-  const iree_hal_executable_library_v0_t* library = iree_hal_executable_library_query(IREE_HAL_EXECUTABLE_LIBRARY_LATEST_VERSION, /*reserved=*/NULL);
+  const iree_hal_executable_library_v0_t* library = simple_mul_dispatch_0_library_query(IREE_HAL_EXECUTABLE_LIBRARY_LATEST_VERSION, /*reserved=*/NULL);
   printf("Device Static!!!\n");
   printf("Number of entry points: %d\n", library->entry_point_count);
   printf("Entry point name: %s\n", library->entry_point_names[0]);
@@ -51,7 +51,7 @@ iree_status_t create_sample_device(iree_hal_device_t** device) {
   printf("--Sanitizer: %d\n", library->header->sanitizer);
 
   // Load the simple embedding library
-  const iree_hal_executable_library_header_t** static_library = iree_hal_executable_library_query(IREE_HAL_EXECUTABLE_LIBRARY_LATEST_VERSION, /*reserved=*/NULL);
+  const iree_hal_executable_library_header_t** static_library = simple_mul_dispatch_0_library_query(IREE_HAL_EXECUTABLE_LIBRARY_LATEST_VERSION, /*reserved=*/NULL);
   const int library_count = 1;
 
   const iree_hal_executable_library_header_t** libraries[1] = {static_library};
