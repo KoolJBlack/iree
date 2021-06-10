@@ -34,8 +34,7 @@ iree_cc_binary(
   NAME
     static_library_demo
   SRCS
-    "device_static.c"
-    "simple_embedding.c"
+    "static_library_demo.c"
   DEPS
     ::static_embedding_module
     iree::base

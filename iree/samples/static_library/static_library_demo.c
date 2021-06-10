@@ -8,6 +8,9 @@
 // multiplication with the device implemented by different backends via
 // create_sample_driver().
 
+// A example of setting up static library loading.
+
+
 #include <stdio.h>
 
 #include "iree/base/api.h"
@@ -15,20 +18,53 @@
 #include "iree/modules/hal/hal_module.h"
 #include "iree/vm/api.h"
 #include "iree/vm/bytecode_module.h"
+#include "iree/base/api.h"
+#include "iree/hal/api.h"
+#include "iree/hal/local/executable_loader.h"
+#include "iree/hal/local/loaders/static_library_loader.h"
+#include "iree/hal/local/task_device.h"
+#include "iree/samples/static_library/static_embedding_module.h"
+#include "iree/task/api.h"
 
 // Compiled module embedded here to avoid file IO:
-#if IREE_ARCH_RISCV_64
-#include "iree/samples/simple_embedding/simple_embedding_test_llvm_aot_rv64.h"
-#elif IREE_STATIC_LIBRARY
-#include "iree/samples/simple_embedding/static_module.h"
-#else
-#include "iree/samples/simple_embedding/simple_embedding_test_bytecode_module_c.h"
-#endif
+#include "iree/samples/static_library/static_module.h"
 
 // A function to create the HAL device from the different backend targets.
 // The HAL device is returned based on the implementation, and it must be
 // released by the caller.
-extern iree_status_t create_sample_device(iree_hal_device_t** device);
+iree_status_t create_sample_device(iree_hal_device_t** device) {
+  // Set paramters for the device created in the next step.
+  iree_hal_task_device_params_t params;
+  iree_hal_task_device_params_initialize(&params);
+
+  // Load the statically embedded library
+  const iree_hal_executable_library_header_t** static_library =
+      simple_mul_dispatch_0_library_query(
+          IREE_HAL_EXECUTABLE_LIBRARY_LATEST_VERSION, /*reserved=*/NULL);
+  const int library_count = 1;
+  const iree_hal_executable_library_header_t** libraries[1] = {static_library};
+
+  iree_hal_executable_loader_t* loaders[1] = {NULL};
+  iree_host_size_t loader_count = 0;
+  IREE_RETURN_IF_ERROR(iree_hal_static_library_loader_create(
+      1, libraries, iree_allocator_system(), &loaders[loader_count++]));
+
+  iree_task_executor_t* executor = NULL;
+  IREE_RETURN_IF_ERROR(
+      iree_task_executor_create_from_flags(iree_allocator_system(), &executor));
+
+  iree_string_view_t identifier = iree_make_cstring_view("dylib");
+
+  // Create the device and release the executor and loader afterwards.
+  IREE_RETURN_IF_ERROR(iree_hal_task_device_create(
+      identifier, &params, executor, IREE_ARRAYSIZE(loaders), loaders,
+      iree_allocator_system(), device));
+  iree_task_executor_release(executor);
+  for (iree_host_size_t i = 0; i < loader_count; ++i) {
+    iree_hal_executable_loader_release(loaders[i]);
+  }
+  return iree_ok_status();
+}
 
 iree_status_t Run() {
   // TODO(benvanik): move to instance-based registration.
@@ -45,19 +81,8 @@ iree_status_t Run() {
       iree_hal_module_create(device, iree_allocator_system(), &hal_module));
 
   // Load bytecode module from the embedded data.
-#if IREE_ARCH_RISCV_64
-  const struct iree_file_toc_t* module_file_toc =
-      iree_samples_simple_embedding_rv64_test_module_create();
-#elif IREE_STATIC_LIBRARY
   const struct iree_file_toc_t* module_file_toc =
       iree_samples_static_embedding_module_create();
-#else
-  // Note the setup here only supports native build. The bytecode is not built
-  // for the cross-compile execution. The code can be compiled but it will
-  // hit runtime error in a cross-compile environment.
-  const struct iree_file_toc_t* module_file_toc =
-      iree_samples_simple_embedding_test_module_create();
-#endif
 
   iree_vm_module_t* bytecode_module = NULL;
   iree_const_byte_span_t module_data =
@@ -182,10 +207,10 @@ int main() {
     char* message;
     size_t message_length;
     iree_status_to_string(result, &message, &message_length);
-    fprintf(stderr, "simple_embedding_run failed: %s\n", message);
+    fprintf(stderr, "static_library_run failed: %s\n", message);
     iree_allocator_free(iree_allocator_system(), message);
     return -1;
   }
-  printf("simple_embedding_run passed\n");
+  printf("static_library_run passed\n");
   return 0;
 }
