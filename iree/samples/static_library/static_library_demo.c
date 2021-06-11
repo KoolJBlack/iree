@@ -23,7 +23,7 @@
 #include "iree/hal/local/executable_loader.h"
 #include "iree/hal/local/loaders/static_library_loader.h"
 #include "iree/hal/local/task_device.h"
-#include "iree/samples/static_library/static_embedding_module.h"
+#include "iree/samples/static_library/static_library_module.h"
 #include "iree/task/api.h"
 
 // Compiled module embedded here to avoid file IO:
@@ -82,7 +82,7 @@ iree_status_t Run() {
 
   // Load bytecode module from the embedded data.
   const struct iree_file_toc_t* module_file_toc =
-      iree_samples_static_embedding_module_create();
+      iree_samples_static_library_module_create();
 
   iree_vm_module_t* bytecode_module = NULL;
   iree_const_byte_span_t module_data =

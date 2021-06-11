@@ -12,15 +12,15 @@ iree_add_all_subdirs()
 
 iree_c_embed_data(
   NAME
-    static_embedding_module
+    static_library_module
   SRCS
-    "static_embedding_module.vmfb"
+    "static_library_module.vmfb"
   C_FILE_OUTPUT
     "static_module.c"
   H_FILE_OUTPUT
     "static_module.h"
   IDENTIFIER
-    "iree_samples_static_embedding_module"
+    "iree_samples_static_library_module"
   FLATTEN
   PUBLIC
 )
@@ -36,7 +36,7 @@ iree_cc_binary(
   SRCS
     "static_library_demo.c"
   DEPS
-    ::static_embedding_module
+    ::static_library_module
     iree::base
     iree::hal
     iree::hal::local
@@ -46,7 +46,7 @@ iree_cc_binary(
     iree::task::api
     iree::vm
     iree::vm::bytecode_module
-    ${CMAKE_CURRENT_SOURCE_DIR}/static_embedding_module.o
+    ${CMAKE_CURRENT_SOURCE_DIR}/static_library_module.o
   DEFINES
     "IREE_STATIC_LIBRARY=1"
 )
