@@ -5,9 +5,9 @@
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
 #include "iree/compiler/Conversion/CodegenUtils/FunctionUtils.h"
-#include "iree/compiler/Conversion/Common/Passes.h"
 #include "iree/compiler/Conversion/LinalgToLLVM/KernelDispatch.h"
-#include "iree/compiler/Conversion/LinalgToLLVM/Passes.h"
+#include "iree/compiler/Conversion/PassDetail.h"
+#include "iree/compiler/Conversion/Passes.h"
 #include "iree/compiler/Dialect/HAL/IR/HALDialect.h"
 #include "iree/compiler/Dialect/HAL/IR/HALOps.h"
 #include "mlir/Dialect/LLVMIR/LLVMDialect.h"
@@ -25,8 +25,7 @@ namespace {
 /// - then convert to LLVM dialect.
 /// In due course this could be used to generate code for all backends.
 class LowerExecutableTargetPass
-    : public PassWrapper<LowerExecutableTargetPass,
-                         OperationPass<IREE::HAL::ExecutableTargetOp>> {
+    : public LowerExecutableTargetBase<LowerExecutableTargetPass> {
  public:
   void getDependentDialects(DialectRegistry &registry) const override {
     registry.insert<IREE::HAL::HALDialect, linalg::LinalgDialect,
@@ -57,11 +56,11 @@ class LowerExecutableTargetPass
                      "expected to work on the std.module op within the "
                      "hal.executable.target operation")};
 
-  ListOption<int> workgroupSizes{
-      *this, "workgroup-size", llvm::cl::MiscFlags::CommaSeparated,
+  ListOption<int> workloadPerWorkgroup{
+      *this, "workload-per-workgroup", llvm::cl::MiscFlags::CommaSeparated,
       llvm::cl::desc(
-          "Specifies the workgroup size to use in x, y, z order. Is expected "
-          "for use only with use-lowering-pipeline option")};
+          "Specifies the workload per workgroup to use in x, y, z order. Is "
+          "expected for use only with use-lowering-pipeline option")};
 
   /// TODO(ravishankarm): Option to not generate any `vector.` instructions. The
   /// VMVX backend uses the same lowering as the CPU pass but there is no
@@ -96,10 +95,11 @@ void LowerExecutableTargetPass::runOnOperation() {
 
   if (!useLoweringPipeline.empty()) {
     // Use the pass pipeline specified in the command line.
-    SmallVector<int64_t, 4> dispatchWorkgroupSize;
-    dispatchWorkgroupSize.assign(workgroupSizes.begin(), workgroupSizes.end());
+    SmallVector<int64_t, 4> workloadPerWorkgroupVec;
+    workloadPerWorkgroupVec.assign(workloadPerWorkgroup.begin(),
+                                   workloadPerWorkgroup.end());
     executableLoweringPipeline.addPass(
-        createSetNumWorkgroupsPass(dispatchWorkgroupSize));
+        createSetNumWorkgroupsPass(workloadPerWorkgroupVec));
     OpPassManager &nestedModulePM = executableLoweringPipeline.nest<ModuleOp>();
     if (failed(parsePassPipeline(sanitizePipelineString(useLoweringPipeline),
                                  nestedModulePM))) {
@@ -107,23 +107,49 @@ void LowerExecutableTargetPass::runOnOperation() {
     }
   } else {
     // Use default heuristics.
-    FailureOr<IREE::HAL::TranslateExecutableInfo> translationInfo =
-        initCPULaunchConfig(moduleOp);
-    if (failed(translationInfo)) {
+    if (failed(initCPULaunchConfig(moduleOp))) {
       return signalPassFailure();
     }
-    executableLoweringPipeline.addPass(
-        createSetNumWorkgroupsPass(translationInfo->workgroupSize));
 
+    // There might be multiple entry points in the module. Currently, all of
+    // them need to have the same pipeline.
+    // TODO(ravishankarm): This is strange that this is not enforced
+    // structurally, but something to address later on. For now this restriction
+    // is fine.
+    llvm::StringMap<IREE::HAL::ExecutableEntryPointOp> entryPoints =
+        getAllEntryPoints(moduleOp);
+    Optional<IREE::HAL::DispatchLoweringPassPipeline> passPipeline;
+    for (auto &it : entryPoints) {
+      auto entryPointOp = it.second;
+      if (IREE::HAL::TranslationInfo translationInfo =
+              getTranslationInfo(entryPointOp)) {
+        IREE::HAL::DispatchLoweringPassPipeline currPipeline =
+            translationInfo.passPipeline().getValue();
+        if (passPipeline) {
+          if (currPipeline != passPipeline.getValue()) {
+            moduleOp.emitError(
+                "unhandled compilation of entry point function with different "
+                "pass pipelines within a module");
+            return signalPassFailure();
+          }
+          continue;
+        }
+        passPipeline = currPipeline;
+      }
+    }
+
+    executableLoweringPipeline.addPass(createSetNumWorkgroupsPass());
     OpPassManager &nestedModulePM = executableLoweringPipeline.nest<ModuleOp>();
     if (!testLoweringConfiguration) {
-      switch (translationInfo->passPipeline) {
+      switch (passPipeline.getValue()) {
         case IREE::HAL::DispatchLoweringPassPipeline::CPUDefault:
           addCPUDefaultPassPipeline(nestedModulePM);
           break;
         case IREE::HAL::DispatchLoweringPassPipeline::CPUVectorization:
           addCPUVectorizationPassPipeline(nestedModulePM, lowerToVectors);
           break;
+        default:
+          llvm_unreachable("Unsupported pipeline on CPU target.");
       }
     }
   }
@@ -137,12 +163,6 @@ std::unique_ptr<OperationPass<IREE::HAL::ExecutableTargetOp>>
 createLowerExecutableTargetPass(bool lowerToVectors) {
   return std::make_unique<LowerExecutableTargetPass>(lowerToVectors);
 }
-
-static PassRegistration<LowerExecutableTargetPass> pass(
-    "iree-lower-executable-target-pass",
-    "Perform lowering of executable target using one of the "
-    "IREE::HAL::DispatchLoweringPassPipeline",
-    [] { return std::make_unique<LowerExecutableTargetPass>(); });
 
 }  // namespace iree_compiler
 }  // namespace mlir

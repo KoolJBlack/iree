@@ -15,19 +15,20 @@ cc_library(
     srcs = [
         "ConvertToLLVM.cpp",
         "KernelDispatch.cpp",
-        "LinalgTileAndVectorizePass.cpp",
+        "LinalgToLLVMWorkgroupsVectorizationPass.cpp",
         "LinalgVectorizePass.cpp",
         "LowerExecutableTargetPass.cpp",
         "PadLinalgWorkgroupTiles.cpp",
         "Passes.cpp",
         "PlanConvLoopOrder.cpp",
+        "TilePadAndVectorizeWorkgroups.cpp",
         "UnfuseFMAOps.cpp",
     ],
     hdrs = [
         "KernelDispatch.h",
-        "Passes.h",
     ],
     deps = [
+        "//iree/compiler/Conversion:PassHeaders",
         "//iree/compiler/Conversion/CodegenUtils",
         "//iree/compiler/Conversion/Common",
         "//iree/compiler/Conversion/VectorToLLVM",

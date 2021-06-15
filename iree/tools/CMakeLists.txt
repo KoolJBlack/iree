@@ -218,7 +218,6 @@ if(${IREE_BUILD_COMPILER})
       ::init_iree_passes_and_dialects
       ::init_mlir_passes_and_dialects
       ::init_xla_dialects
-      iree::compiler::Conversion::init_conversions
       iree::compiler::Conversion::Conversion
       iree::compiler::Dialect::HAL::Conversion::Passes
     INCLUDES
@@ -307,7 +306,6 @@ if(${IREE_BUILD_COMPILER})
       MLIRSupport
       MLIRTargetLLVMIRExport
       MLIRTranslation
-      iree::compiler::Conversion::init_conversions
       iree::compiler::Conversion::Conversion
       iree::compiler::Dialect::VM::Target::Bytecode
       iree::compiler::Dialect::VM::Target::init_targets
@@ -332,6 +330,20 @@ if(${IREE_BUILD_COMPILER})
     DEPS
       ::iree_opt_main
     HOSTONLY
+  )
+
+  iree_cc_binary(
+    NAME
+      iree-mlir-lsp-server
+    SRCS
+      "iree-mlir-lsp-server.cc"
+    DEPS
+      ::init_passes_and_dialects
+      MLIRIR
+      MLIRLspServerLib
+      MLIRSupport
+      ${IREE_OPT_CONDITIONAL_DEPS}
+    PUBLIC
   )
 
   iree_cc_binary(

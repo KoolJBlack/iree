@@ -16,12 +16,12 @@ iree_cc_library(
   HDRS
     "ConvertToLLVM.h"
     "KernelConfig.h"
-    "Passes.h"
   SRCS
     "ConvertToLLVM.cpp"
     "ConvertToNVVM.cpp"
     "ConvertToROCDL.cpp"
     "KernelConfig.cpp"
+    "LowerExecutableTargetPass.cpp"
     "Passes.cpp"
     "RemoveTrivialLoops.cpp"
     "TileAndDistribute.cpp"
@@ -51,6 +51,7 @@ iree_cc_library(
     MLIRVectorToSCF
     iree::compiler::Conversion::CodegenUtils
     iree::compiler::Conversion::Common
+    iree::compiler::Conversion::PassHeaders
     iree::compiler::Dialect::HAL::IR
     iree::compiler::Dialect::IREE::IR
     iree::compiler::Dialect::Shape::Transforms

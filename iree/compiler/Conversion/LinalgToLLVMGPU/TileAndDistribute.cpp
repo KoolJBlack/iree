@@ -8,7 +8,9 @@
 #include "iree/compiler/Conversion/CodegenUtils/MarkerUtils.h"
 #include "iree/compiler/Conversion/Common/Transforms.h"
 #include "iree/compiler/Conversion/LinalgToLLVMGPU/KernelConfig.h"
-#include "iree/compiler/Conversion/LinalgToLLVMGPU/Passes.h"
+#include "iree/compiler/Conversion/PassDetail.h"
+#include "iree/compiler/Conversion/Passes.h"
+#include "iree/compiler/Dialect/HAL/IR/LoweringConfig.h"
 #include "iree/compiler/Dialect/IREE/IR/IREEOps.h"
 #include "mlir/Conversion/GPUToNVVM/GPUToNVVMPass.h"
 #include "mlir/Conversion/StandardToLLVM/ConvertStandardToLLVM.h"
@@ -62,11 +64,11 @@ static void populateTilingReductionPatterns(MLIRContext *context,
 /// Patterns for thread level tiling.
 static void populateTilingToInvocationPatterns(
     MLIRContext *context, OwningRewritePatternList &patterns,
-    const LaunchConfig &launchConfig) {
+    ArrayRef<int64_t> workgroupSize) {
   linalg::TileSizeComputationFunction getInnerTileSizeFn =
-      [launchConfig](OpBuilder &builder, Operation *operation) {
+      [](OpBuilder &builder, Operation *operation) {
         SmallVector<Value, 4> tileSizesVal;
-        ArrayRef<int64_t> tileSizes = launchConfig.getTileSizes(operation, 2);
+        SmallVector<int64_t, 4> tileSizes = getTileSizes(operation, 2);
         if (tileSizes.empty()) return SmallVector<Value, 4>();
         tileSizesVal.reserve(tileSizes.size());
         for (auto val : llvm::enumerate(tileSizes)) {
@@ -80,11 +82,11 @@ static void populateTilingToInvocationPatterns(
         return tileSizesVal;
       };
 
-  auto getThreadProcInfoFn = [launchConfig](
+  auto getThreadProcInfoFn = [workgroupSize](
                                  OpBuilder &builder, Location loc,
                                  ArrayRef<Range> parallelLoopRanges) {
     return getGPUThreadIdsAndCounts(builder, loc, parallelLoopRanges.size(),
-                                    launchConfig.getWorkgroupSize());
+                                    workgroupSize);
   };
   linalg::LinalgLoopDistributionOptions invocationDistributionOptions;
   invocationDistributionOptions.procInfo = getThreadProcInfoFn;
@@ -122,10 +124,10 @@ static void populateTilingToInvocationPatterns(
 /// picked by the root op.
 static void populateTilingCopyToWorkgroupMemPatterns(
     MLIRContext *context, OwningRewritePatternList &patterns,
-    const LaunchConfig &launchConfig) {
+    ArrayRef<int64_t> workgroupSize) {
   // Tile and distribute copy to workgroup memory.
   linalg::TileSizeComputationFunction wgCopyTileSizeFn =
-      [launchConfig](OpBuilder &builder, Operation *operation) {
+      [](OpBuilder &builder, Operation *operation) {
         const int64_t copyTileSize = 4;
         // We tile to 4 as we want each thread to load 4 element in a cyclic
         // distribution.
@@ -141,7 +143,7 @@ static void populateTilingCopyToWorkgroupMemPatterns(
             builder.create<ConstantIndexOp>(operation->getLoc(), copyTileSize));
         return tileSizesVal;
       };
-  auto getCopyThreadProcInfoFn = [launchConfig](
+  auto getCopyThreadProcInfoFn = [workgroupSize](
                                      OpBuilder &builder, Location loc,
                                      ArrayRef<Range> parallelLoopRanges) {
     SmallVector<std::array<int64_t, 3>, 2> staticRanges;
@@ -158,15 +160,14 @@ static void populateTilingCopyToWorkgroupMemPatterns(
       staticRanges.push_back(
           {cstOffset.getValue(), cstSize.getValue(), cstStride.getValue()});
     }
-    ArrayRef<int64_t> wokgroupSize = launchConfig.getWorkgroupSize();
     // Only support static dimension with 1D workgroups for now. Fall back to
     // the naive distribution for other cases.
-    if (hasDynamicRange || wokgroupSize[1] != 1 || wokgroupSize[2] != 1)
+    if (hasDynamicRange || workgroupSize[1] != 1 || workgroupSize[2] != 1)
       return getGPUThreadIdsAndCounts(builder, loc, parallelLoopRanges.size(),
-                                      launchConfig.getWorkgroupSize());
+                                      workgroupSize);
     Value serializedId =
         builder.create<gpu::ThreadIdOp>(loc, builder.getIndexType(), "x");
-    int64_t numIds = wokgroupSize[0];
+    int64_t numIds = workgroupSize[0];
     int numDims = parallelLoopRanges.size();
     SmallVector<linalg::ProcInfo, 2> procInfo(numDims);
     assert(numDims <= kNumGPUDims);
@@ -317,9 +318,9 @@ class ConcretizeWorkgroupSizeOp final
   ArrayRef<int64_t> tileSize;
 };
 
-struct TileAndDistributeToThreads
-    : public PassWrapper<TileAndDistributeToThreads,
-                         OperationPass<IREE::HAL::ExecutableTargetOp>> {
+struct LinalgToLLVMGPUTileAndDistributePass
+    : public LinalgToLLVMGPUTileAndDistributeBase<
+          LinalgToLLVMGPUTileAndDistributePass> {
   void getDependentDialects(DialectRegistry &registry) const override {
     registry.insert<AffineDialect, gpu::GPUDialect>();
   }
@@ -337,32 +338,25 @@ struct TileAndDistributeToThreads
       if (failed(getLinalgOps(funcOp, linalgOps, tiledLoops))) {
         return signalPassFailure();
       }
-      linalg::Aliases aliases;
-      linalg::LinalgDependenceGraph dependenceGraph(aliases, linalgOps);
-      auto config = getLLVMGPULaunchConfig(context, dependenceGraph, linalgOps);
-      if (!config) return signalPassFailure();
-
-      // Attach the workgroup size as an attribute. This will be used when
-      // creating the flatbuffer.
-      funcOp->setAttr("llvmgpu_workgroup_size",
-                      DenseElementsAttr::get<int64_t>(
-                          VectorType::get(3, IntegerType::get(context, 64)),
-                          config->getWorkgroupSize()));
-
-      Operation *rootOp = config->getRootOperation(llvm::to_vector<4>(
-          llvm::map_range(linalgOps, [](linalg::LinalgOp op) {
-            return op.getOperation();
-          })));
-      SmallVector<int64_t, 4> wgTileSize =
-          llvm::to_vector<4>(config->getTileSizes(rootOp, 0));
+      if (linalgOps.empty() || !hasLoweringConfig(*linalgOps.begin())) return;
+      std::array<int64_t, 3> workgroupSize;
+      for (auto it : llvm::enumerate(funcOp->getAttr("llvmgpu_workgroup_size")
+                                         .cast<DenseIntElementsAttr>()
+                                         .getIntValues())) {
+        workgroupSize[it.index()] = it.value().getZExtValue();
+      }
+      IREE::HAL::LoweringConfig config = getLoweringConfig(*linalgOps.begin());
+      SmallVector<int64_t, 4> wgTileSize = getTileSizes(config, 0);
       // If there is no tile size, skip tiling.
       if (wgTileSize.empty()) return;
-      unsigned numOuterParallelLoops =
-          getNumOuterParallelLoops(cast<linalg::LinalgOp>(rootOp));
-      size_t numContractionLoops =
-          wgTileSize.size() > numOuterParallelLoops
-              ? wgTileSize.size() - numOuterParallelLoops
-              : 0;
+      unsigned numOuterParallelLoops = 0;
+      unsigned numContractionLoops = 0;
+      for (linalg::LinalgOp linalgOp : linalgOps) {
+        numOuterParallelLoops =
+            std::max(getNumOuterParallelLoops(linalgOp), numOuterParallelLoops);
+        numContractionLoops =
+            std::max(linalgOp.getNumReductionLoops(), numContractionLoops);
+      }
       size_t numTilableDims =
           std::min(kWorkgroupDimCount, numOuterParallelLoops);
       wgTileSize.resize(numTilableDims);
@@ -386,7 +380,7 @@ struct TileAndDistributeToThreads
         // same size.
         OwningRewritePatternList wgTilingPatterns(context);
         populateTilingReductionPatterns(context, wgTilingPatterns,
-                                        config->getTileSizes(rootOp, 0));
+                                        getTileSizes(config, 0));
         (void)applyPatternsAndFoldGreedily(funcOp, std::move(wgTilingPatterns));
         applyCanonicalizationPatternsForTiling(context, funcOp);
       }
@@ -411,9 +405,9 @@ struct TileAndDistributeToThreads
         // Apply last level of tiling and distribute to threads.
         OwningRewritePatternList threadLevelTilingPatterns(context);
         populateTilingToInvocationPatterns(context, threadLevelTilingPatterns,
-                                           *config);
+                                           workgroupSize);
         populateTilingCopyToWorkgroupMemPatterns(
-            context, threadLevelTilingPatterns, *config);
+            context, threadLevelTilingPatterns, workgroupSize);
         (void)applyPatternsAndFoldGreedily(
             funcOp, std::move(threadLevelTilingPatterns));
         applyCanonicalizationPatternsForTiling(context, funcOp);
@@ -431,13 +425,9 @@ struct TileAndDistributeToThreads
 }  // namespace
 
 std::unique_ptr<OperationPass<IREE::HAL::ExecutableTargetOp>>
-createTileAndDistributeToThreads() {
-  return std::make_unique<TileAndDistributeToThreads>();
+createLinalgToLLVMGPUTileAndDistributeToThreads() {
+  return std::make_unique<LinalgToLLVMGPUTileAndDistributePass>();
 }
-
-static PassRegistration<TileAndDistributeToThreads> pass(
-    "iree-codegen-llvmgpu-tile-and-distribute",
-    "Pass to tile and distribute linalg ops within a workgroup.");
 
 }  // namespace iree_compiler
 }  // namespace mlir

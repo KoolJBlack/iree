@@ -36,6 +36,7 @@ cc_library(
         ":LinkerTool",
         ":StaticLibraryGenerator",
         "//iree/base/internal:flatcc",
+        "//iree/compiler/Conversion:PassHeaders",
         "//iree/compiler/Conversion/CodegenUtils",
         "//iree/compiler/Conversion/Common",
         "//iree/compiler/Conversion/LinalgToLLVM",

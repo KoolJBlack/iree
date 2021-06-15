@@ -148,7 +148,6 @@ cc_library(
         ":init_mlir_passes_and_dialects",
         ":init_xla_dialects",
         "//iree/compiler/Conversion",
-        "//iree/compiler/Conversion:init_conversions",
         "//iree/compiler/Conversion/HLOToLinalg",
         "//iree/compiler/Dialect/HAL/Conversion:Passes",
     ],
@@ -227,6 +226,17 @@ cc_binary(
     tags = ["hostonly"],
     deps = [
         ":iree_opt_main",
+    ],
+)
+
+cc_library(
+    name = "iree-mlir-lsp-server",
+    srcs = ["iree-mlir-lsp-server.cc"],
+    deps = [
+        ":init_passes_and_dialects",
+        "@llvm-project//mlir:IR",
+        "@llvm-project//mlir:MlirLspServerLib",
+        "@llvm-project//mlir:Support",
     ],
 )
 
@@ -312,7 +322,6 @@ cc_library(
         ":init_translations",
         ":init_xla_dialects",
         "//iree/compiler/Conversion",
-        "//iree/compiler/Conversion:init_conversions",
         "//iree/compiler/Dialect/VM/Target:init_targets",
         "//iree/compiler/Dialect/VM/Target/Bytecode",
         "//iree/compiler/Translation:IREEVM",

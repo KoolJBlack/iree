@@ -17,6 +17,7 @@ cc_library(
         "ConvertToNVVM.cpp",
         "ConvertToROCDL.cpp",
         "KernelConfig.cpp",
+        "LowerExecutableTargetPass.cpp",
         "Passes.cpp",
         "RemoveTrivialLoops.cpp",
         "TileAndDistribute.cpp",
@@ -25,9 +26,9 @@ cc_library(
     hdrs = [
         "ConvertToLLVM.h",
         "KernelConfig.h",
-        "Passes.h",
     ],
     deps = [
+        "//iree/compiler/Conversion:PassHeaders",
         "//iree/compiler/Conversion/CodegenUtils",
         "//iree/compiler/Conversion/Common",
         "//iree/compiler/Dialect/HAL/IR",
@@ -35,6 +36,7 @@ cc_library(
         "//iree/compiler/Dialect/Shape/Transforms",
         "@llvm-project//mlir:Affine",
         "@llvm-project//mlir:AffineToStandard",
+        "@llvm-project//mlir:GPUDialect",
         "@llvm-project//mlir:GPUToNVVMTransforms",
         "@llvm-project//mlir:GPUToROCDLTransforms",
         "@llvm-project//mlir:GPUTransforms",

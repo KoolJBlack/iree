@@ -6,7 +6,7 @@
 
 #include "iree/compiler/Dialect/HAL/Target/ROCM/ROCMTarget.h"
 
-#include "iree/compiler/Conversion/LinalgToLLVMGPU/Passes.h"
+#include "iree/compiler/Conversion/Passes.h"
 #include "iree/compiler/Dialect/HAL/Target/TargetRegistry.h"
 #include "iree/compiler/Utils/FlatbufferUtils.h"
 #include "iree/schemas/rocm_executable_def_builder.h"
@@ -150,7 +150,8 @@ class ROCMTargetBackend final : public TargetBackend {
     iree_ROCMExecutableDef_start_as_root(builder);
 
     // Link module to Device Library
-    if (options_.ROCMLinkBC) LinkROCDLIfNecessary(llvmModule.get());
+    if (options_.ROCMLinkBC)
+      LinkROCDLIfNecessary(llvmModule.get(), options_.ROCMTargetChip);
 
     // Serialize hsaco kernel into the binary that we will embed in the
     // final flatbuffer.

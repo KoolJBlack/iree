@@ -8,11 +8,11 @@
 
 package org.tensorflow.lite;
 
+import android.support.annotation.NonNull;
 import java.nio.Buffer;
 import java.nio.ByteBuffer;
 import java.util.HashMap;
 import java.util.Map;
-import org.checkerframework.checker.nullness.qual.NonNull;
 
 /**
  * Main driver class for the IREE Java compatibility shim. Provides model
@@ -237,7 +237,6 @@ public final class Interpreter implements AutoCloseable {
     if (outputs == null || outputs.isEmpty()) {
       throw new IllegalArgumentException("Input error: Outputs should not be null or empty.");
     }
-    checkInitialized();
 
     if (!tensorsAllocated) {
       allocateTensors();
