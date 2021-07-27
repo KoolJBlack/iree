@@ -42,8 +42,12 @@ jobs:
         ls -las ../../../third_party/
         ls -las ../../../third_party/mlir-hlo
 
+    - uses: hendrikmuhs/ccache-action@4687d037e4d7cf725512d9b819137a3af34d39b3
+    - name: Ccache for C++ compilation
+      run: export PATH="/usr/lib/ccache:/usr/local/opt/ccache/libexec:$PATH"
+
     - name: Setup Gradle Wrapper
-      run: gradle  wrapper --debug
+      run: gradle  wrapper --debug --scan
     - uses: seanmiddleditch/gha-setup-ninja@master
     - name: Build with Gradle
-      run: ./gradlew build --debug --full-stacktrace
+      run: ./gradlew build --debug --full-stacktrace --scan
