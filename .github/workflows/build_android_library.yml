@@ -28,6 +28,8 @@ jobs:
         working-directory: bindings/tflite/java
     steps:
     - uses: actions/checkout@v2
+      with:
+        submodules: true
     - name: set up JDK 11
       uses: actions/setup-java@v2
       with:
@@ -35,15 +37,13 @@ jobs:
         distribution: 'adopt'
     - name: Ls the working directory
       run: ls -las .
-    # - name: Ls the tflite bindings directory
-    #   run: ls -las bindings/tflite/java
+    - name: Ls third_party directory
+      run: |
+        ls -las ../../../third_party/
+        ls -las ../../../third_party/mlir-hlo
 
     - name: Setup Gradle Wrapper
-      run: gradle  wrapper
+      run: gradle  wrapper --debug
+    - uses: seanmiddleditch/gha-setup-ninja@master
     - name: Build with Gradle
-      run: ./gradlew build
-
-    # - name: Grant execute permission for gradlew
-    #   run: chmod +x bindings/tflite/java/gradlew
-    # - name: Build with Gradle
-    #   run: ./bindings/tflite/java/gradlew build
+      run: ./gradlew build --debug --full-stacktrace
