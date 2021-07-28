@@ -80,7 +80,7 @@ task cmakeConfigureHost(type: Exec) {
             "-B", hostBuildDir ,
             "-DIREE_TARGET_BACKENDS_TO_BUILD=vmvx",
             "-DIREE_HAL_DRIVERS_TO_BUILD=vmvx",
-            "-DIREE_BUILD_COMPILER=ON",
+            "-DIREE_BUILD_COMPILER=OFF",
             "-DIREE_BUILD_TESTS=OFF ",
             "-DIREE_BUILD_SAMPLES=OFF",
             "-DCMAKE_INSTALL_PREFIX=${hostInstallDir}",
