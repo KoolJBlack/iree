@@ -17,7 +17,7 @@ buildscript {
 
 apply plugin: 'com.android.library'
 
-def cmakeListDir = "${rootDir}/../../../"
+def cmakeListDir = "${rootDir}/../../.."
 def hostBuildDir = "${cmakeListDir}/../iree-build-host"
 def hostInstallDir = "${hostBuildDir}/install"
 
