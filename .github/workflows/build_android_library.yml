@@ -42,8 +42,24 @@ jobs:
         ls -las ../../../third_party/
         ls -las ../../../third_party/mlir-hlo
 
+    # - name: Setup Android SDK
+    #   uses: android-actions/setup-android@v2
+    # - name: Setup Ninja Build
+    #   uses: seanmiddleditch/gha-setup-ninja@master
+
+    - name: LS the SDK
+      run: ls -las /usr/local/lib/android/sdk/
+
+    - name: Check ninja
+      run: |
+        ls -las /usr/local/lib/android/sdk/cmake/3.18.1/bin
+        echo $PATH
+        sudo apt-get install ninja-build
+        which ninja
+        ninja --version
+
+
     - name: Setup Gradle Wrapper
       run: gradle  wrapper --debug --scan
-    - uses: seanmiddleditch/gha-setup-ninja@master
     - name: Build with Gradle
       run: ./gradlew build --debug --full-stacktrace --scan

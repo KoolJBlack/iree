@@ -24,7 +24,7 @@ def hostInstallDir = "${hostBuildDir}/install"
 android {
     compileSdkVersion 29
     defaultConfig {
-        minSdkVersion 28
+        minSdkVersion 29
         targetSdkVersion 29
 
         externalNativeBuild {
