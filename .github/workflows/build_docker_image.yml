@@ -1,0 +1,26 @@
+name: Build Android Library
+
+on:
+  push:
+    branches: [ android-library-action ]
+  pull_request:
+    branches: [ android-library-action ]
+
+jobs:
+  Build-Docker:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v2
+      with:
+        submodules: false
+    - name: Build Docker
+      run: docker build build_tools/docker/gradle-android --tag gradle-android
+    - name: Check Docker Image
+      run: docker images
+    - name: Run Docker
+      run: docker run --rm gradle-android gradle
+      # uses: docker/build-push-action@v2
+      # with:
+      #   context: .
+      #   push: false
+      #   tags: gradle-android

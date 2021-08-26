@@ -1,10 +1,10 @@
 name: Build Android Library
 
-on:
-  push:
-    branches: [ android-library-action ]
-  pull_request:
-    branches: [ android-library-action ]
+# on:
+#   push:
+#     branches: [ android-library-action ]
+#   pull_request:
+#     branches: [ android-library-action ]
 
 jobs:
   Explore-GitHub-Actions:
