@@ -166,6 +166,7 @@ iree_status_t iree_dynamic_library_load_from_files(
     iree_host_size_t search_path_count, const char* const* search_paths,
     iree_dynamic_library_flags_t flags, iree_allocator_t allocator,
     iree_dynamic_library_t** out_library) {
+  // printf("Hello, World\n");
   IREE_TRACE_ZONE_BEGIN(z0);
   IREE_ASSERT_ARGUMENT(out_library);
   *out_library = NULL;
@@ -174,6 +175,7 @@ iree_status_t iree_dynamic_library_load_from_files(
   void* handle = NULL;
   iree_host_size_t i = 0;
   for (i = 0; i < search_path_count; ++i) {
+    printf("Loading library: %s \n" , search_paths[i]);
     handle = dlopen(search_paths[i], RTLD_LAZY | RTLD_LOCAL);
     if (handle) break;
   }
@@ -182,6 +184,7 @@ iree_status_t iree_dynamic_library_load_from_files(
     return iree_make_status(IREE_STATUS_NOT_FOUND,
                             "dynamic library not found on any search path");
   }
+  printf("Complete!\n");\
 
   iree_dynamic_library_t* library = NULL;
   iree_status_t status =

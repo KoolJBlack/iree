@@ -16,7 +16,17 @@ static const char* kCUDALoaderSearchNames[] = {
 #if defined(IREE_PLATFORM_WINDOWS)
     "nvcuda.dll",
 #else
-    "libcuda.so",
+    // "libcuda.so",
+    "/lib/x86_64-linux-gnu/libcuda.so",
+#endif
+};
+
+static const char* kCUPTILoaderSearchNames[] = {
+#if defined(IREE_PLATFORM_WINDOWS)
+    "nvcuda.dll", // TODO: I dont' know what this should be for windows CUPTI???
+#else
+    "/usr/local/cuda/extras/CUPTI/lib64/libcupti.so",
+    // "libcupti.so"
 #endif
 };
 
@@ -37,6 +47,20 @@ static iree_status_t iree_hal_cuda_dynamic_symbols_resolve_all(
   }
 #include "iree/hal/cuda/dynamic_symbol_tables.h"  // IWYU pragma: keep
 #undef CU_PFN_DECL
+
+#define CUPTI_PFN_DECL(cuptiSymbolName, ...)                                       \
+  {                                                                            \
+    static const char* kName = #cuptiSymbolName;                                \
+    IREE_RETURN_IF_ERROR(iree_dynamic_library_lookup_symbol(                   \
+        syms->cupti_loader_library, kName, (void**)&syms->cuptiSymbolName));          \
+    static const char* kNameV2 = concat(#cuptiSymbolName, "_v2");               \
+    void* funV2;                                                               \
+    iree_dynamic_library_lookup_symbol(syms->cupti_loader_library, kNameV2, &funV2); \
+    if (funV2) syms->cuptiSymbolName = funV2;                                   \
+  }
+#include "iree/hal/cuda/dynamic_cupti_tables.h"  // IWYU pragma: keep
+#undef CUPTI_PFN_DECL
+
   return iree_ok_status();
 }
 
@@ -44,7 +68,11 @@ iree_status_t iree_hal_cuda_dynamic_symbols_initialize(
     iree_allocator_t allocator, iree_hal_cuda_dynamic_symbols_t* out_syms) {
   IREE_TRACE_ZONE_BEGIN(z0);
   memset(out_syms, 0, sizeof(*out_syms));
-  iree_status_t status = iree_dynamic_library_load_from_files(
+
+  iree_status_t status;
+
+  // CUDA
+  status = iree_dynamic_library_load_from_files(
       IREE_ARRAYSIZE(kCUDALoaderSearchNames), kCUDALoaderSearchNames,
       IREE_DYNAMIC_LIBRARY_FLAG_NONE, allocator, &out_syms->loader_library);
   if (iree_status_is_not_found(status)) {
@@ -53,12 +81,26 @@ iree_status_t iree_hal_cuda_dynamic_symbols_initialize(
         IREE_STATUS_UNAVAILABLE,
         "CUDA runtime library not available; ensure installed and on path");
   }
+
+  // CUPTI
+  status = iree_dynamic_library_load_from_files(
+      IREE_ARRAYSIZE(kCUPTILoaderSearchNames), kCUPTILoaderSearchNames,
+      IREE_DYNAMIC_LIBRARY_FLAG_NONE, allocator, &out_syms->cupti_loader_library);
+  if (iree_status_is_not_found(status)) {
+    iree_status_ignore(status);
+    return iree_make_status(
+        IREE_STATUS_UNAVAILABLE,
+        "CUPTI runtime library not available; ensure installed and on path");
+  }
+
   if (iree_status_is_ok(status)) {
     status = iree_hal_cuda_dynamic_symbols_resolve_all(out_syms);
   }
   if (!iree_status_is_ok(status)) {
     iree_hal_cuda_dynamic_symbols_deinitialize(out_syms);
   }
+
+
   IREE_TRACE_ZONE_END(z0);
   return status;
 }

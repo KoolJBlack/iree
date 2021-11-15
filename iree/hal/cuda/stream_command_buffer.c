@@ -13,6 +13,7 @@
 #include "iree/hal/cuda/native_executable.h"
 #include "iree/hal/cuda/status_util.h"
 
+
 #define IREE_HAL_CUDA_MAX_BINDING_COUNT 64
 // Kernel arguments contains binding and push constants.
 #define IREE_HAL_CUDA_MAX_KERNEL_ARG 128
@@ -23,6 +24,7 @@ typedef struct {
   iree_hal_command_buffer_t base;
   iree_hal_cuda_context_wrapper_t* context;
   CUstream stream;
+  iree_hal_cuda_tracing_context_t * tracing_context;
 
   int32_t push_constant[IREE_HAL_CUDA_MAX_PUSH_CONSTANT_COUNT];
   // Keep track of the current set of kernel arguments.
@@ -44,7 +46,10 @@ iree_status_t iree_hal_cuda_stream_command_buffer_create(
     iree_hal_device_t* device, iree_hal_cuda_context_wrapper_t* context,
     iree_hal_command_buffer_mode_t mode,
     iree_hal_command_category_t command_categories, CUstream stream,
+    iree_hal_cuda_tracing_context_t *tracing_context,
     iree_hal_command_buffer_t** out_command_buffer) {
+  printf("iree_hal_cuda_stream_command_buffer_create():\n");
+
   IREE_ASSERT_ARGUMENT(context);
   IREE_ASSERT_ARGUMENT(out_command_buffer);
   *out_command_buffer = NULL;
@@ -60,6 +65,7 @@ iree_status_t iree_hal_cuda_stream_command_buffer_create(
         &iree_hal_cuda_stream_command_buffer_vtable, &command_buffer->base);
     command_buffer->context = context;
     command_buffer->stream = stream;
+    command_buffer->tracing_context = tracing_context;
     for (size_t i = 0; i < IREE_HAL_CUDA_MAX_KERNEL_ARG; i++) {
       command_buffer->current_descriptor[i] = &command_buffer->device_ptrs[i];
     }
@@ -72,6 +78,8 @@ iree_status_t iree_hal_cuda_stream_command_buffer_create(
 
 static void iree_hal_cuda_stream_command_buffer_destroy(
     iree_hal_command_buffer_t* base_command_buffer) {
+  printf("iree_hal_cuda_stream_command_buffer_destroy():\n");
+
   iree_hal_cuda_stream_command_buffer_t* command_buffer =
       iree_hal_cuda_stream_command_buffer_cast(base_command_buffer);
   IREE_TRACE_ZONE_BEGIN(z0);
@@ -98,11 +106,19 @@ static void* iree_hal_cuda_stream_command_buffer_dyn_cast(
 
 static iree_status_t iree_hal_cuda_stream_command_buffer_begin(
     iree_hal_command_buffer_t* base_command_buffer) {
+  printf("iree_hal_cuda_stream_command_buffer_begin():\n");
+    iree_hal_cuda_stream_command_buffer_t* command_buffer =
+      iree_hal_cuda_stream_command_buffer_cast(base_command_buffer);
+  IREE_CUDA_TRACE_COMMAND_BUFFER_ZONE_BEGIN(command_buffer->tracing_context);
   return iree_ok_status();
 }
 
 static iree_status_t iree_hal_cuda_stream_command_buffer_end(
     iree_hal_command_buffer_t* base_command_buffer) {
+  printf("iree_hal_cuda_stream_command_buffer_end():\n");
+    iree_hal_cuda_stream_command_buffer_t* command_buffer =
+      iree_hal_cuda_stream_command_buffer_cast(base_command_buffer);
+  IREE_CUDA_TRACE_COMMAND_BUFFER_ZONE_END(command_buffer->tracing_context);
   return iree_ok_status();
 }
 
@@ -157,6 +173,7 @@ static iree_status_t iree_hal_cuda_stream_command_buffer_fill_buffer(
     iree_hal_buffer_t* target_buffer, iree_device_size_t target_offset,
     iree_device_size_t length, const void* pattern,
     iree_host_size_t pattern_length) {
+  // printf("iree_hal_cuda_stream_command_buffer_fill_buffer():\n");
   iree_hal_cuda_stream_command_buffer_t* command_buffer =
       iree_hal_cuda_stream_command_buffer_cast(base_command_buffer);
 
@@ -210,6 +227,8 @@ static iree_status_t iree_hal_cuda_stream_command_buffer_copy_buffer(
     iree_hal_buffer_t* source_buffer, iree_device_size_t source_offset,
     iree_hal_buffer_t* target_buffer, iree_device_size_t target_offset,
     iree_device_size_t length) {
+  // printf("iree_hal_cuda_stream_command_buffer_copy_buffer():\n");
+
   iree_hal_cuda_stream_command_buffer_t* command_buffer =
       iree_hal_cuda_stream_command_buffer_cast(base_command_buffer);
 
@@ -305,6 +324,13 @@ static iree_status_t iree_hal_cuda_stream_command_buffer_dispatch(
     iree_hal_command_buffer_t* base_command_buffer,
     iree_hal_executable_t* executable, int32_t entry_point,
     uint32_t workgroup_x, uint32_t workgroup_y, uint32_t workgroup_z) {
+    // printf("iree_hal_cuda_stream_command_buffer_dispatch():\n");
+
+  static int count = 0;
+  count = count + 1;
+  // printf("The dispatch count is %d\n", count);
+
+
   iree_hal_cuda_stream_command_buffer_t* command_buffer =
       iree_hal_cuda_stream_command_buffer_cast(base_command_buffer);
   iree_hal_executable_layout_t* layout =
@@ -319,6 +345,27 @@ static iree_status_t iree_hal_cuda_stream_command_buffer_dispatch(
         command_buffer->push_constant[i];
   }
 
+
+  // TODO(kooljblack): retreive line numbers and function name
+  // IREE_CUDA_TRACE_ZONE_BEGIN(command_buffer->tracing_context);
+
+
+  IREE_TRACE({
+    iree_hal_cuda_source_location_t source_location;
+    iree_hal_cuda_native_executable_entry_point_source_location(
+        executable, entry_point, &source_location);
+
+    // printf("The source func_name: %s entry_point: %d\n",
+    // source_location.file_name.data,
+    // entry_point);
+
+    IREE_CUDA_TRACE_KERNEL_ZONE_BEGIN_EXTERNAL(
+        command_buffer->tracing_context,
+        source_location.file_name.data, source_location.file_name.size,
+        source_location.line, /*func_name=*/NULL, 0,
+        source_location.func_name.data, source_location.func_name.size);
+  });
+
   int32_t block_size_x, block_size_y, block_size_z;
   IREE_RETURN_IF_ERROR(iree_hal_cuda_native_executable_block_size(
       executable, entry_point, &block_size_x, &block_size_y, &block_size_z));
@@ -330,6 +377,9 @@ static iree_status_t iree_hal_cuda_stream_command_buffer_dispatch(
                      block_size_y, block_size_z, 0, command_buffer->stream,
                      command_buffer->current_descriptor, NULL),
       "cuLaunchKernel");
+
+  IREE_CUDA_TRACE_KERNEL_ZONE_END(command_buffer->tracing_context);
+
   return iree_ok_status();
 }
 
@@ -338,6 +388,7 @@ static iree_status_t iree_hal_cuda_stream_command_buffer_dispatch_indirect(
     iree_hal_executable_t* executable, int32_t entry_point,
     iree_hal_buffer_t* workgroups_buffer,
     iree_device_size_t workgroups_offset) {
+    printf("iree_hal_cuda_stream_command_buffer_dispatch_indirect():\n");
   return iree_make_status(IREE_STATUS_UNIMPLEMENTED,
                           "need cuda implementation of dispatch indirect");
 }

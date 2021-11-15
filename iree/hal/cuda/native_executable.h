@@ -18,6 +18,12 @@
 extern "C" {
 #endif  // __cplusplus
 
+typedef struct iree_hal_cuda_source_location_t {
+  iree_string_view_t file_name;
+  int line;
+  iree_string_view_t func_name;
+} iree_hal_cuda_source_location_t;
+
 // Creates an executable from a PTX module. The module may contain several
 // kernels that can be extracted along with the associated block size.
 iree_status_t iree_hal_cuda_native_executable_create(
@@ -36,6 +42,12 @@ iree_status_t iree_hal_cuda_native_executable_block_size(
 /// Return the layout associated with the entry point.
 iree_hal_executable_layout_t* iree_hal_cuda_executable_get_layout(
     iree_hal_executable_t* executable, int32_t entry_point);
+
+// Returns the source location for the given entry point. May be empty if not
+// available.
+void iree_hal_cuda_native_executable_entry_point_source_location(
+    iree_hal_executable_t* executable, iree_host_size_t entry_ordinal,
+    iree_hal_cuda_source_location_t* out_source_location);
 
 #ifdef __cplusplus
 }  // extern "C"

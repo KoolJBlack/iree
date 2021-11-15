@@ -69,6 +69,9 @@ extern "C" {
 typedef struct iree_hal_vulkan_tracing_context_t
     iree_hal_vulkan_tracing_context_t;
 
+// DO-NOT-SUBMIT: remove this defines
+#define IREE_TRACING_FEATURES IREE_TRACING_FEATURE_INSTRUMENTATION
+
 #if IREE_TRACING_FEATURES & IREE_TRACING_FEATURE_INSTRUMENTATION
 
 // Allocates a tracing context for the given Vulkan queue.

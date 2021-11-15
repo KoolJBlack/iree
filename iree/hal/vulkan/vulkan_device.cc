@@ -1127,6 +1127,8 @@ static iree_status_t iree_hal_vulkan_device_wait_semaphores(
 static iree_status_t iree_hal_vulkan_device_wait_idle(
     iree_hal_device_t* base_device, iree_timeout_t timeout) {
   iree_hal_vulkan_device_t* device = iree_hal_vulkan_device_cast(base_device);
+  printf("iree_hal_vulkan_device_wait_idle(): \n");
+
   for (iree_host_size_t i = 0; i < device->queue_count; ++i) {
     IREE_RETURN_IF_ERROR(device->queues[i]->WaitIdle(timeout));
   }

@@ -47,6 +47,38 @@ iree_status_t iree_hal_cuda_result_to_status(
     iree_hal_cuda_dynamic_symbols_t* syms, CUresult result, const char* file,
     uint32_t line);
 
+
+// Converts a CUptiResult to an iree_status_t.
+//
+// Usage:
+//   iree_status_t status = CUPTI_RESULT_TO_STATUS(cuDoThing(...));
+#define CUPTI_RESULT_TO_STATUS(syms, expr, ...) \
+  iree_hal_cupti_result_to_status((syms), ((syms)->expr), __FILE__, __LINE__)
+
+// IREE_RETURN_IF_ERROR but implicitly converts the CUptiResult return value to
+// a Status.
+//
+// Usage:
+//   CUPTI_RETURN_IF_ERROR(cuDoThing(...), "message");
+#define CUPTI_RETURN_IF_ERROR(syms, expr, ...)                                 \
+  IREE_RETURN_IF_ERROR(iree_hal_cupti_result_to_status((syms), ((syms)->expr), \
+                                                      __FILE__, __LINE__),    \
+                       __VA_ARGS__)
+
+// IREE_IGNORE_ERROR but implicitly converts the CUptiResult return value to a
+// Status.
+//
+// Usage:
+//   CUPTI_IGNORE_ERROR(cuDoThing(...));
+#define CUPTI_IGNORE_ERROR(syms, expr)                                      \
+  IREE_IGNORE_ERROR(iree_hal_cupti_result_to_status((syms), ((syms)->expr), \
+                                                   __FILE__, __LINE__))
+
+// Converts a CUptiResult to a Status object.
+iree_status_t iree_hal_cupti_result_to_status(
+    iree_hal_cuda_dynamic_symbols_t* syms, CUptiResult result, const char* file,
+    uint32_t line);
+
 #ifdef __cplusplus
 }  // extern "C"
 #endif  // __cplusplus

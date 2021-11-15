@@ -6,6 +6,7 @@
 
 #include "iree/hal/vulkan/tracing.h"
 
+
 #if IREE_TRACING_FEATURES & IREE_TRACING_FEATURE_INSTRUMENTATION
 
 #include "iree/base/api.h"
@@ -340,6 +341,8 @@ static void iree_hal_vulkan_tracing_prepare_query_pool(
   }
   context->query_capacity = pool_info.queryCount;
 
+  printf("iree_hal_vulkan_tracing_prepare_query_pool()): query_capacity:%d \n", context->query_capacity);
+
   // Perform initial reset of the query pool. All queries must be reset upon
   // creation before first use.
   iree_hal_vulkan_tracing_reset_query_pool(context, 0, context->query_capacity);
@@ -502,6 +505,7 @@ iree_status_t iree_hal_vulkan_tracing_context_allocate(
 void iree_hal_vulkan_tracing_context_free(
     iree_hal_vulkan_tracing_context_t* context) {
   if (!context) return;
+  printf("iree_hal_vulkan_tracing_context_free(): \n");
   IREE_TRACE_ZONE_BEGIN(z0);
 
   if (context->query_pool != VK_NULL_HANDLE) {
@@ -535,6 +539,9 @@ void iree_hal_vulkan_tracing_context_collect(
     // No outstanding queries.
     return;
   }
+
+  printf("iree_hal_vulkan_tracing_context_collect(): \n");
+
   IREE_TRACE_ZONE_BEGIN(z0);
   const auto& syms = context->logical_device->syms();
 

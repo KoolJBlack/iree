@@ -24,6 +24,7 @@ typedef struct iree_hal_cuda_native_executable_function_t {
   uint32_t block_size_x;
   uint32_t block_size_y;
   uint32_t block_size_z;
+  iree_string_view_t name;
 } iree_hal_cuda_native_executable_function_t;
 
 typedef struct iree_hal_cuda_native_executable_t {
@@ -105,8 +106,16 @@ iree_status_t iree_hal_cuda_native_executable_create(
       executable->executable_layouts[i] =
           executable_spec->executable_layouts[i];
       iree_hal_executable_layout_retain(executable_spec->executable_layouts[i]);
+      executable->entry_functions[i].name =
+          iree_make_string_view(entry_name, flatbuffers_string_len(entry_name));
+
+      // printf("The iree_hal_cuda_native_executable_create(): the entry_name: %s -- final name: %s\n",
+      //  entry_name, executable->entry_functions[i].name.data );
+
     }
   }
+
+  // printf("iree_hal_cuda_native_executable_create(): entry count %zu & final entry count %zu\n", entry_count, executable->entry_count);
 
   if (iree_status_is_ok(status)) {
     *out_executable = (iree_hal_executable_t*)executable;
@@ -156,6 +165,24 @@ iree_hal_executable_layout_t* iree_hal_cuda_executable_get_layout(
   iree_hal_cuda_native_executable_t* executable =
       iree_hal_cuda_native_executable_cast(base_executable);
   return executable->executable_layouts[entry_point];
+}
+
+void iree_hal_cuda_native_executable_entry_point_source_location(
+    iree_hal_executable_t* base_executable, iree_host_size_t entry_ordinal,
+    iree_hal_cuda_source_location_t* out_source_location) {
+  iree_hal_cuda_native_executable_t* executable =
+      iree_hal_cuda_native_executable_cast(base_executable);
+  memset(out_source_location, 0, sizeof(*out_source_location));
+  if (entry_ordinal >= executable->entry_count) {
+    // printf("entry ordinal too big, ordinal %zu, count %zu\n", entry_ordinal, executable->entry_count);
+    return;
+  }
+  // printf("iree_hal_cuda_native_executable_entry_point_source_location(%zu): %s\n", entry_ordinal, executable->entry_functions[entry_ordinal].name.data);
+  out_source_location->func_name = executable->entry_functions[entry_ordinal].name;
+
+  // TODO(kooljblack): plumb through file name/line for the MLIR function.
+  out_source_location->file_name = out_source_location->func_name;
+  out_source_location->line = 0;
 }
 
 static const iree_hal_executable_vtable_t

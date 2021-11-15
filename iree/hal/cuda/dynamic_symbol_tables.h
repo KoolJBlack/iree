@@ -52,3 +52,4 @@ CU_PFN_DECL(cuMemcpyAsync, CUdeviceptr, CUdeviceptr, size_t, CUstream)
 CU_PFN_DECL(cuLaunchKernel, CUfunction, unsigned int, unsigned int,
             unsigned int, unsigned int, unsigned int, unsigned int,
             unsigned int, CUstream, void **, void **)
+// CU_PFN_DECL(cuptiGetTimestamp, uint64_t*)

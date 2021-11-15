@@ -47,6 +47,8 @@ iree_cc_library(
     "status_util.h"
     "stream_command_buffer.c"
     "stream_command_buffer.h"
+    "tracing.cc"
+    "tracing.h"
   DEPS
     ::dynamic_symbols
     iree::base
@@ -71,6 +73,7 @@ iree_cc_library(
     "dynamic_symbols.h"
   TEXTUAL_HDRS
     "dynamic_symbol_tables.h"
+    "dynamic_cupti_tables.h"
   SRCS
     "cuda_headers.h"
     "dynamic_symbols.c"
@@ -87,6 +90,20 @@ iree_cc_test(
     dynamic_symbols_test
   SRCS
     "dynamic_symbols_test.cc"
+  DEPS
+    ::dynamic_symbols
+    iree::base
+    iree::testing::gtest
+    iree::testing::gtest_main
+  LABELS
+    "driver=cuda"
+)
+
+iree_cc_test(
+  NAME
+    dynamic_cupti_test
+  SRCS
+    "dynamic_cupti_test.cc"
   DEPS
     ::dynamic_symbols
     iree::base

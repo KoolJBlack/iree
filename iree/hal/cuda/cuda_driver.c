@@ -14,6 +14,8 @@
 #include "iree/hal/cuda/cuda_device.h"
 #include "iree/hal/cuda/dynamic_symbols.h"
 #include "iree/hal/cuda/status_util.h"
+#include "iree/hal/cuda/tracing.h"
+
 
 typedef struct iree_hal_cuda_driver_t {
   iree_hal_resource_t resource;
@@ -197,6 +199,8 @@ static iree_status_t iree_hal_cuda_driver_create_device(
     iree_allocator_t host_allocator, iree_hal_device_t** out_device) {
   iree_hal_cuda_driver_t* driver = iree_hal_cuda_driver_cast(base_driver);
   IREE_TRACE_ZONE_BEGIN(z0);
+
+
 
   IREE_RETURN_AND_END_ZONE_IF_ERROR(
       z0, CU_RESULT_TO_STATUS(&driver->syms, cuInit(0), "cuInit"));
