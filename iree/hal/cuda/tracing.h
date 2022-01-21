@@ -1,4 +1,4 @@
-// Copyright 2021 Google LLC
+// Copyright 2022 Google LLC
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -20,7 +20,6 @@
 #include "iree/hal/cuda/api.h"
 #include "iree/hal/cuda/dynamic_symbols.h"
 #include "iree/hal/cuda/context_wrapper.h"
-
 
 // DO-NOT-SUBMIT: remove this defines
 #define IREE_TRACING_FEATURES IREE_TRACING_FEATURE_INSTRUMENTATION
@@ -45,8 +44,6 @@ typedef struct iree_hal_cuda_tracing_context_t iree_hal_cuda_tracing_context_t;
 //
 void iree_hal_cuda_tracing_globals_initialize(void);
 
-
-
 // Allocates a tracing context for the given Cuda queue.
 // Each context must only be used with the queue it was created with.
 //
@@ -63,7 +60,6 @@ iree_status_t iree_hal_cuda_tracing_context_allocate(
 void iree_hal_cuda_tracing_context_free(
     iree_hal_cuda_tracing_context_t* context);
 
-
 // Collects in-flight timestamp queries from the queue and feeds them to tracy.
 // Must be called frequently (every submission, etc) to drain the backlog;
 // tracing may start failing if the internal ringbuffer is exceeded.
@@ -74,12 +70,12 @@ void iree_hal_cuda_tracing_context_free(
 void iree_hal_cuda_tracing_sync(
     iree_hal_cuda_tracing_context_t* context);
 
-
-// Begins a normal zone derived on the calling |src_loc|.
-// Must be perfectly nested and paired with a corresponding zone end.
-void iree_hal_cuda_tracing_kernel_zone_begin_impl(
+void iree_hal_cuda_tracing_command_buffer_zone_begin_impl(
     iree_hal_cuda_tracing_context_t* context,
     const iree_tracing_location_t* src_loc);
+
+void iree_hal_cuda_tracing_command_buffer_zone_end_impl(
+    iree_hal_cuda_tracing_context_t* context);
 
 // Begins an external zone using the given source information.
 // The provided strings will be copied into the tracy buffer.
@@ -92,61 +88,37 @@ void iree_hal_cuda_tracing_kernel_zone_begin_external_impl(
 void iree_hal_cuda_tracing_kernel_zone_end_impl(
     iree_hal_cuda_tracing_context_t* context);
 
-
-// === Kernel ===
-
 // Begins a new zone with the parent function name.
-#define IREE_CUDA_TRACE_KERNEL_ZONE_BEGIN(context)                 \
-  static const iree_tracing_location_t TracyConcat(                           \
-      __tracy_source_location, __LINE__) = {NULL, __FUNCTION__,       \
-                                            __FILE__, (uint32_t)__LINE__, 0}; \
-  iree_hal_cuda_tracing_kernel_zone_begin_impl(                                    \
-      context,                                                \
-      &TracyConcat(__tracy_source_location, __LINE__));
-
-// Begins an externally defined zone with a dynamic source location.
-// The |file_name|, |function_name|, and optional |name| strings will be copied
-// into the trace buffer and do not need to persist.
-#define IREE_CUDA_TRACE_KERNEL_ZONE_BEGIN_EXTERNAL(                                 \
-    context, file_name, file_name_length, line, function_name, \
-    function_name_length, name, name_length)                                   \
-  iree_hal_cuda_tracing_kernel_zone_begin_external_impl(                            \
-      context, file_name, file_name_length, line,              \
-      function_name, function_name_length, name, name_length)
-
-// Ends the current zone. Must be passed the |zone_id| from the _BEGIN.
-#define IREE_CUDA_TRACE_KERNEL_ZONE_END(context) \
-  iree_hal_cuda_tracing_kernel_zone_end_impl(context)
-
-// === Command Buffer ===
-
-void iree_hal_cuda_tracing_command_buffer_zone_begin_impl(
-    iree_hal_cuda_tracing_context_t* context,
-    const iree_tracing_location_t* src_loc);
-
-void iree_hal_cuda_tracing_command_buffer_zone_end_impl(
-    iree_hal_cuda_tracing_context_t* context);
-
-// Begins a new zone with the parent function name.
-#define IREE_CUDA_TRACE_COMMAND_BUFFER_ZONE_BEGIN(context)                 \
-  static const iree_tracing_location_t TracyConcat(                           \
-      __tracy_source_location, __LINE__) = {NULL, __FUNCTION__,       \
-                                            __FILE__, (uint32_t)__LINE__, 0}; \
-  iree_hal_cuda_tracing_command_buffer_zone_begin_impl(                                    \
-      context,                                                \
-      &TracyConcat(__tracy_source_location, __LINE__));
+#define IREE_CUDA_TRACE_COMMAND_BUFFER_ZONE_BEGIN(context)                \
+  static const iree_tracing_location_t TracyConcat(                       \
+      __tracy_source_location, __LINE__) = {NULL, __FUNCTION__, __FILE__, \
+                                            (uint32_t)__LINE__, 0};       \
+  iree_hal_cuda_tracing_command_buffer_zone_begin_impl(                   \
+      context, &TracyConcat(__tracy_source_location, __LINE__));
 
 // Ends the current zone. Must be passed the |zone_id| from the _BEGIN.
 #define IREE_CUDA_TRACE_COMMAND_BUFFER_ZONE_END(context) \
   iree_hal_cuda_tracing_command_buffer_zone_end_impl(context)
 
+// Begins an externally defined zone with a dynamic source location.
+// The |file_name|, |function_name|, and optional |name| strings will be copied
+// into the trace buffer and do not need to persist.
+#define IREE_CUDA_TRACE_KERNEL_ZONE_BEGIN_EXTERNAL(              \
+    context, file_name, file_name_length, line, function_name,   \
+    function_name_length, name, name_length)                     \
+  iree_hal_cuda_tracing_kernel_zone_begin_external_impl(         \
+      context, file_name, file_name_length, line, function_name, \
+      function_name_length, name, name_length)
+
+// Ends the current zone. Must be passed the |zone_id| from the _BEGIN.
+#define IREE_CUDA_TRACE_KERNEL_ZONE_END(context) \
+  iree_hal_cuda_tracing_kernel_zone_end_impl(context)
 
 #else
 
-// TODO: Put no-op methods here.
-
-#define IREE_CUDA_TRACE_KERNEL_ZONE_BEGIN(context)
-#define IREE_CUDA_TRACE_KERNEL_ZONE_BEGIN_EXTERNAL(                                 \
+#define IREE_CUDA_TRACE_COMMAND_BUFFER_ZONE_BEGIN(context)
+#define IREE_CUDA_TRACE_COMMAND_BUFFER_ZONE_END(context)
+#define IREE_CUDA_TRACE_KERNEL_ZONE_BEGIN_EXTERNAL(            \
     context, file_name, file_name_length, line, function_name, \
     function_name_length, name, name_length)
 #define IREE_CUDA_TRACE_KERNEL_ZONE_END(context)
