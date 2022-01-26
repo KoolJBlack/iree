@@ -23,6 +23,7 @@
 #include "iree/hal/cuda/nop_executable_cache.h"
 #include "iree/hal/cuda/status_util.h"
 #include "iree/hal/cuda/stream_command_buffer.h"
+#include "iree/hal/cuda/tracing.h"
 #include "iree/hal/utils/buffer_transfer.h"
 #include "iree/hal/utils/deferred_command_buffer.h"
 
@@ -55,6 +56,8 @@ typedef struct iree_hal_cuda_device_t {
   // Cache of the direct stream command buffer initialized when in stream mode.
   // TODO: have one cached per stream once there are multiple streams.
   iree_hal_command_buffer_t* stream_command_buffer;
+
+  iree_hal_cuda_tracing_context_t * tracing_context;
 } iree_hal_cuda_device_t;
 
 static const iree_hal_device_vtable_t iree_hal_cuda_device_vtable;
@@ -115,12 +118,29 @@ static iree_status_t iree_hal_cuda_device_create_internal(
       (iree_hal_device_t*)device, &device->context_wrapper, cu_device, stream,
       &device->device_allocator);
 
+  // CUDA device name for tracing context.
+  char device_name_raw[256];
+  CUDA_RETURN_IF_ERROR(syms, cuDeviceGetName(device_name_raw, 256, cu_device),
+                       "cuDeviceGetName");
+
+  char device_name_formatted[256];
+  int device_name_length =
+      snprintf(device_name_formatted, IREE_ARRAYSIZE(device_name_formatted),
+               "CUDA[%s]", device_name_raw);
+  iree_string_view_t queue_name =
+      iree_make_string_view(device_name_formatted, device_name_length);
+
+  iree_hal_cuda_tracing_globals_initialize();
+  iree_hal_cuda_tracing_context_allocate(
+      device->context_wrapper, device->context_wrapper.host_allocator,
+      device->context_wrapper.syms, queue_name, &device->tracing_context);
+
   if (iree_status_is_ok(status) &&
       params->command_buffer_mode == IREE_HAL_CUDA_COMMAND_BUFFER_MODE_STREAM) {
     status = iree_hal_cuda_stream_command_buffer_create(
         (iree_hal_device_t*)device, &device->context_wrapper,
         IREE_HAL_COMMAND_BUFFER_MODE_ALLOW_INLINE_EXECUTION,
-        IREE_HAL_COMMAND_CATEGORY_ANY, device->stream,
+        IREE_HAL_COMMAND_CATEGORY_ANY, device->stream, device->tracing_context,
         &device->stream_command_buffer);
   }
 
@@ -175,6 +195,8 @@ static void iree_hal_cuda_device_destroy(iree_hal_device_t* base_device) {
                     cuStreamDestroy(device->stream));
 
   iree_arena_block_pool_deinitialize(&device->block_pool);
+
+  iree_hal_cuda_tracing_context_free(device->tracing_context);
 
   // Finally, destroy the device.
   iree_hal_driver_release(device->driver);
@@ -244,7 +266,7 @@ static iree_status_t iree_hal_cuda_device_create_command_buffer(
     // directly route commands to a CUDA stream and let it eagerly flush.
     return iree_hal_cuda_stream_command_buffer_create(
         base_device, &device->context_wrapper, mode, command_categories,
-        device->stream, out_command_buffer);
+        device->stream, device->tracing_context, out_command_buffer);
   }
   switch (device->params.command_buffer_mode) {
     case IREE_HAL_CUDA_COMMAND_BUFFER_MODE_GRAPH:

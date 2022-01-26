@@ -30,3 +30,24 @@ iree_status_t iree_hal_cuda_result_to_status(
                                         "CUDA driver error '%s' (%d): %s",
                                         error_name, result, error_string);
 }
+
+iree_status_t iree_hal_cupti_result_to_status(
+    iree_hal_cuda_dynamic_symbols_t* syms, CUptiResult result, const char* file,
+    uint32_t line) {
+  if (IREE_LIKELY(result == CUPTI_SUCCESS)) {
+    return iree_ok_status();
+  }
+
+  const char* error_name = NULL;
+  if (syms->cuptiGetResultString (result, &error_name) != CUPTI_SUCCESS) {
+    error_name = "UNKNOWN";
+  }
+
+  const char* error_string = NULL;
+  if (syms->cuptiGetResultString (result, &error_string) != CUPTI_SUCCESS) {
+    error_string = "Unknown error.";
+  }
+  return iree_make_status_with_location(file, line, IREE_STATUS_INTERNAL,
+                                        "CUPTI error '%s' (%d): %s",
+                                        error_name, result, error_string);
+}

@@ -25,7 +25,10 @@ static const char* kCUPTILoaderSearchNames[] = {
 #if defined(IREE_PLATFORM_WINDOWS)
     "cupti64_2021.2.0.dll"
 #else  // IREE_PLATFORM_WINDOWS
-    "libcupti.so"
+    // "libcupti.so"
+    //TODO(kooljblack): revert
+    "/usr/local/cuda/extras/CUPTI/lib64/libcupti.so",
+
 #endif
 };
 #endif  // IREE_ENABLE_CUPTI

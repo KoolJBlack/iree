@@ -23,6 +23,7 @@ typedef struct {
   iree_hal_command_buffer_t base;
   iree_hal_cuda_context_wrapper_t* context;
   CUstream stream;
+  iree_hal_cuda_tracing_context_t * tracing_context;
 
   int32_t push_constant[IREE_HAL_CUDA_MAX_PUSH_CONSTANT_COUNT];
   // Keep track of the current set of kernel arguments.
@@ -44,6 +45,7 @@ iree_status_t iree_hal_cuda_stream_command_buffer_create(
     iree_hal_device_t* device, iree_hal_cuda_context_wrapper_t* context,
     iree_hal_command_buffer_mode_t mode,
     iree_hal_command_category_t command_categories, CUstream stream,
+    iree_hal_cuda_tracing_context_t *tracing_context,
     iree_hal_command_buffer_t** out_command_buffer) {
   IREE_ASSERT_ARGUMENT(context);
   IREE_ASSERT_ARGUMENT(out_command_buffer);
@@ -60,6 +62,7 @@ iree_status_t iree_hal_cuda_stream_command_buffer_create(
         &iree_hal_cuda_stream_command_buffer_vtable, &command_buffer->base);
     command_buffer->context = context;
     command_buffer->stream = stream;
+    command_buffer->tracing_context = tracing_context;
     for (size_t i = 0; i < IREE_HAL_CUDA_MAX_KERNEL_ARG; i++) {
       command_buffer->current_descriptor[i] = &command_buffer->device_ptrs[i];
     }
@@ -98,11 +101,21 @@ static void* iree_hal_cuda_stream_command_buffer_dyn_cast(
 
 static iree_status_t iree_hal_cuda_stream_command_buffer_begin(
     iree_hal_command_buffer_t* base_command_buffer) {
+  IREE_TRACE({
+    iree_hal_cuda_stream_command_buffer_t* command_buffer =
+        iree_hal_cuda_stream_command_buffer_cast(base_command_buffer);
+    IREE_CUDA_TRACE_COMMAND_BUFFER_ZONE_BEGIN(command_buffer->tracing_context);
+  });
   return iree_ok_status();
 }
 
 static iree_status_t iree_hal_cuda_stream_command_buffer_end(
     iree_hal_command_buffer_t* base_command_buffer) {
+  iree_hal_cuda_stream_command_buffer_t* command_buffer =
+      iree_hal_cuda_stream_command_buffer_cast(base_command_buffer);
+  IREE_TRACE({
+    IREE_CUDA_TRACE_COMMAND_BUFFER_ZONE_END(command_buffer->tracing_context);
+  });
   return iree_ok_status();
 }
 
@@ -319,6 +332,17 @@ static iree_status_t iree_hal_cuda_stream_command_buffer_dispatch(
         command_buffer->push_constant[i];
   }
 
+  IREE_TRACE({
+    iree_hal_cuda_source_location_t source_location;
+    iree_hal_cuda_native_executable_entry_point_source_location(
+        executable, entry_point, &source_location);
+    IREE_CUDA_TRACE_KERNEL_ZONE_BEGIN_EXTERNAL(
+        command_buffer->tracing_context, source_location.file_name.data,
+        source_location.file_name.size, source_location.line,
+        /*func_name=*/NULL, 0, source_location.func_name.data,
+        source_location.func_name.size);
+  });
+
   int32_t block_size_x, block_size_y, block_size_z;
   IREE_RETURN_IF_ERROR(iree_hal_cuda_native_executable_block_size(
       executable, entry_point, &block_size_x, &block_size_y, &block_size_z));
@@ -330,6 +354,9 @@ static iree_status_t iree_hal_cuda_stream_command_buffer_dispatch(
                      block_size_y, block_size_z, 0, command_buffer->stream,
                      command_buffer->current_descriptor, NULL),
       "cuLaunchKernel");
+
+  IREE_CUDA_TRACE_KERNEL_ZONE_END(command_buffer->tracing_context);
+
   return iree_ok_status();
 }
 

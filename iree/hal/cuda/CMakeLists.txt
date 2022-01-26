@@ -53,6 +53,8 @@ iree_cc_library(
     "status_util.h"
     "stream_command_buffer.c"
     "stream_command_buffer.h"
+    "tracing.cc"
+    "tracing.h"
   DEPS
     ::dynamic_symbols
     iree::base
