@@ -255,6 +255,10 @@ void addGPUTransposePassPipeline(OpPassManager &pm) {
   nestedModulePM.addPass(createCanonicalizerPass());
   nestedModulePM.addPass(createCSEPass());
 
+  // New pass that adds an if tensor padd to loops
+  nestedModulePM.addNestedPass<func::FuncOp>(
+      createLLVMGPUTensorPadPass());
+
   nestedModulePM.addNestedPass<func::FuncOp>(
       createRemoveSingleIterationLoopPass());
 

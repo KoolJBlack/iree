@@ -420,6 +420,10 @@ createLLVMGPUReduceSharedMemoryBankConflicts(int64_t paddingSizeBits = 128);
 /// Converts vector ops to gpu dialect.
 std::unique_ptr<OperationPass<func::FuncOp>> createLLVMGPUVectorToGPU();
 
+// Pads out incomplete workgroups
+std::unique_ptr<OperationPass<func::FuncOp>> createLLVMGPUTensorPadPass();
+
+
 //------------------------------------------------------------------------------
 // SPIR-V Passes
 //------------------------------------------------------------------------------

@@ -29,6 +29,7 @@ iree_cc_library(
     "LLVMGPUReduceBankConflicts.cpp"
     "LLVMGPUTensorAlloc.cpp"
     "LLVMGPUTensorCoreVectorization.cpp"
+    "LLVMGPUTensorPad.cpp"
     "LLVMGPUTileAndDistribute.cpp"
     "LLVMGPUTileTensor.cpp"
     "LLVMGPUVectorLowering.cpp"

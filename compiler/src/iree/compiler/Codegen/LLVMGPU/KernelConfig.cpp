@@ -336,6 +336,7 @@ static LogicalResult setSortConfig(func::FuncOp entryPoint, Operation *op) {
 // Basic default properties for linalg ops that haven't been tuned.
 static LogicalResult setRootDefaultConfig(func::FuncOp entryPoint,
                                           Operation *op) {
+  llvm::dbgs() << "setRootDefaultConfig()\n";
   IREE::Codegen::DispatchLoweringPassPipeline passPipeline =
       IREE::Codegen::DispatchLoweringPassPipeline::LLVMGPUDistribute;
   TileSizesListType tileSizes;
@@ -358,6 +359,7 @@ static LogicalResult setRootDefaultConfig(func::FuncOp entryPoint,
                                                partitionedLoops.end());
   for (auto depth : llvm::seq<int64_t>(0, numLoops)) {
     if (!partitionedLoopsSet.count(depth)) {
+      llvm::dbgs() << "setting tile size at depth ("<< depth << ") to 0\n";
       workgroupTileSizes[depth] = 0;
     }
   }
@@ -414,6 +416,7 @@ static LogicalResult setRootDefaultConfig(func::FuncOp entryPoint,
   // Set the inner most parallel loop to `lowerTs`.
   for (int64_t depth = numLoops; depth > 0; depth--) {
     if (partitionedLoopsSet.count(depth - 1)) {
+      llvm::dbgs() << "depth:" << depth <<" workgroupSize[0](" << workgroupSize[0] << ") vectorSize(" << vectorSize << ")\n";
       workgroupTileSizes[depth - 1] = workgroupSize[0] * vectorSize;
       break;
     }
@@ -533,8 +536,8 @@ static LogicalResult setTransposeConfig(func::FuncOp entryPoint,
     }
   }
 
-  int32_t tileM = 32;
-  int32_t tileN = 32;
+  // int32_t tileM = 32;
+  // int32_t tileN = 32;
   TileSizesListType tileSizes;
   // Set all tile sizes to 1 except for fastest moving dimensions.
   SmallVector<int64_t> tileSizesTemp(linalgOp.getNumLoops(), 1);
@@ -545,10 +548,13 @@ static LogicalResult setTransposeConfig(func::FuncOp entryPoint,
   // Check alignment with tile size for each transpose. Only the fastest moving
   // dims need to match the transpose tile.
   auto loopRanges = linalgOp.getStaticLoopRanges();
-  if (loopRanges[outputFastestDim] % tileM != 0 ||
-      loopRanges[inputFastestDim] % tileN != 0) {
-    return failure();
-  }
+  // if (loopRanges[outputFastestDim] % tileM != 0 ||
+  //     loopRanges[inputFastestDim] % tileN != 0) {
+  //   return failure();
+  // }
+
+  // Force tile size to be 32/32
+  llvm::dbgs() << "Forcing tile size to 32/32 \n";
 
   // Workgroup size contains 8 warps. Configured with 8 threads on fastest
   // moving dimension so each thread can execute a vectorized copy of 4

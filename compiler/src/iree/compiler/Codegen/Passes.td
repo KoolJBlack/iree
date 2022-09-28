@@ -398,6 +398,13 @@ def LLVMGPUVectorToGPU :
   let constructor = "mlir::iree_compiler::createLLVMGPUVectorToGPU()";
 }
 
+def LLVMGPUTensorPad :
+    Pass<"iree-llvmgpu-tensor-pad", "func::FuncOp"> {
+  let summary = "Pass to pad out incomplete tensors.";
+  let constructor = "mlir::iree_compiler::createLLVMGPUTensorPadPass()";
+}
+
+
 //------------------------------------------------------------------------------
 // SPIR-V
 //------------------------------------------------------------------------------
