@@ -359,7 +359,7 @@ static LogicalResult setRootDefaultConfig(func::FuncOp entryPoint,
                                                partitionedLoops.end());
   for (auto depth : llvm::seq<int64_t>(0, numLoops)) {
     if (!partitionedLoopsSet.count(depth)) {
-      llvm::dbgs() << "setting tile size at depth ("<< depth << ") to 0\n";
+      llvm::dbgs() << "setting tile size at depth (" << depth << ") to 0\n";
       workgroupTileSizes[depth] = 0;
     }
   }
@@ -416,7 +416,9 @@ static LogicalResult setRootDefaultConfig(func::FuncOp entryPoint,
   // Set the inner most parallel loop to `lowerTs`.
   for (int64_t depth = numLoops; depth > 0; depth--) {
     if (partitionedLoopsSet.count(depth - 1)) {
-      llvm::dbgs() << "depth:" << depth <<" workgroupSize[0](" << workgroupSize[0] << ") vectorSize(" << vectorSize << ")\n";
+      llvm::dbgs() << "depth:" << depth << " workgroupSize[0]("
+                   << workgroupSize[0] << ") vectorSize(" << vectorSize
+                   << ")\n";
       workgroupTileSizes[depth - 1] = workgroupSize[0] * vectorSize;
       break;
     }

@@ -423,7 +423,6 @@ std::unique_ptr<OperationPass<func::FuncOp>> createLLVMGPUVectorToGPU();
 // Pads out incomplete workgroups
 std::unique_ptr<OperationPass<func::FuncOp>> createLLVMGPUTensorPadPass();
 
-
 //------------------------------------------------------------------------------
 // SPIR-V Passes
 //------------------------------------------------------------------------------
