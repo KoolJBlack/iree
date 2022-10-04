@@ -250,19 +250,20 @@ void addGPUMatmulTensorCorePassPipeline(OpPassManager &pm,
 void addGPUTransposePassPipeline(OpPassManager &pm) {
   tileAndDistributeToWorkgroup(pm);
   auto &nestedModulePM = pm.nest<ModuleOp>();
-  nestedModulePM.addNestedPass<func::FuncOp>(
-      createWorkgroupSpecializationPass());
+  //   nestedModulePM.addNestedPass<func::FuncOp>(
+  //       createWorkgroupSpecializationPass());
   nestedModulePM.addPass(createCanonicalizerPass());
   nestedModulePM.addPass(createCSEPass());
 
-  // New pass that adds an if tensor padd to loops
+  // New pass that adds an if tensor pad to loops
   nestedModulePM.addNestedPass<func::FuncOp>(createLLVMGPUTensorPadPass());
 
   nestedModulePM.addNestedPass<func::FuncOp>(
       createRemoveSingleIterationLoopPass());
 
-  nestedModulePM.addNestedPass<func::FuncOp>(
-      createLLVMGPUTensorAlloc(GPUPromoteSharedMemPattern::TransposeOpPattern));
+  // Removed due to being redundant
+  //   nestedModulePM.addNestedPass<func::FuncOp>(
+  //       createLLVMGPUTensorAlloc(GPUPromoteSharedMemPattern::TransposeOpPattern));
   nestedModulePM.addNestedPass<func::FuncOp>(createLLVMGPUTileTensor(false));
 
   // Linalg -> vector

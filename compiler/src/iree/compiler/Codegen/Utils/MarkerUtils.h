@@ -29,6 +29,8 @@ StringRef getWorkgroupKTiledMarker();
 /// workgroups and operands promoted to scratchspace memory.
 StringRef getWorkgroupMemoryMarker();
 
+StringRef getTransposePadMarker();
+
 /// Marker to denote that a linalg operation on workgoups has been partitioned
 /// to workgroups L1 tiles.
 StringRef getWorkgroupL1TileMarker();

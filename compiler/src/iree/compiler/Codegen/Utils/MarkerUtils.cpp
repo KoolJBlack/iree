@@ -27,6 +27,8 @@ StringRef getWorkgroupL1TileMarker() { return "workgroup_l1_tile"; }
 
 StringRef getWorkgroupMemoryMarker() { return "workgroup_memory"; }
 
+StringRef getTransposePadMarker() { return "transpose_pad"; }
+
 StringRef getWorkgroupNumItemsGENumItersMarker() {
   return "workgroup_numprocs_ge_numiters";
 }
