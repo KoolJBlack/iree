@@ -33,62 +33,40 @@ namespace iree_compiler {
 
 namespace {
 
+
+
 static FailureOr<SmallVector<Value>> rewriteAsPaddedOp(
-    OpBuilder &builder, linalg::LinalgOp linalgOp, linalg::LinalgOp &paddedOp) {
+    PatternRewriter &builder, linalg::LinalgOp linalgOp, linalg::LinalgOp &paddedOp) {
   Location loc = linalgOp.getLoc();
-
-  // Find the tensor load ops feeding into the linalg.
-  llvm::MapVector<int64_t, Value> dispatchTensorLoads;
-  dispatchTensorLoads.reserve(linalgOp.getNumInputsAndOutputs());
-  for (OpOperand *opOperand : linalgOp.getInputAndOutputOperands()) {
-    int64_t operandNumber = opOperand->getOperandNumber();
-    Operation *op = opOperand->get().getDefiningOp();
-
-    if (auto tensorLoad =
-            dyn_cast_or_null<IREE::Flow::DispatchTensorLoadOp>(op)) {
-      dispatchTensorLoads[operandNumber] = tensorLoad;
-      llvm::dbgs() << "I've found a DispatchTensorLoadOp at position: ("
-                   << operandNumber << ")\n";
-    }
-  }
 
   OpBuilder::InsertionGuard g(builder);
   // Set IP after op because we also take the dims of the original output.
   builder.setInsertionPointAfter(linalgOp);
 
-  // Operand 0 (input) needs its 1 dimension padded from 48 to 64
-  IREE::Flow::DispatchTensorLoadOp dispatchLoad0 =
-      cast<IREE::Flow::DispatchTensorLoadOp>(
-          dispatchTensorLoads[0].getDefiningOp());
-  Value paddingValue0 = builder.create<arith::ConstantOp>(
-      loc, builder.getZeroAttr(dispatchTensorLoads[0]
-                                   .getType()
-                                   .cast<ShapedType>()
-                                   .getElementType()));
+  // Pad each operand out to 32,32
   SmallVector<int64_t> paddedShape = {32, 32};
-  auto paddedTensorType0 =
-      RankedTensorType::get(paddedShape, getElementTypeOrSelf(dispatchLoad0));
-  Value paddedInputValue = linalg::makeComposedPadHighOp(
-      builder, loc, paddedTensorType0, dispatchTensorLoads[0], paddingValue0,
-      false);
+  SmallVector<Value> paddedOperands;
+  paddedOperands.reserve(linalgOp.getNumInputsAndOutputs());
+  for (OpOperand *opOperand : linalgOp.getInputAndOutputOperands()) {
+    // Find DispatchTensorLoadOp's feeding into the linalg or abort.
+    auto tensorLoad = dyn_cast_or_null<IREE::Flow::DispatchTensorLoadOp>(
+        opOperand->get().getDefiningOp());
+    if (!tensorLoad) {
+      return builder.notifyMatchFailure(linalgOp, "does not have tensor load");
+    }
 
-  // Operand 1 (output) needs its 0 dimension padded from 48 to 64
-  IREE::Flow::DispatchTensorLoadOp dispatchLoad1 =
-      cast<IREE::Flow::DispatchTensorLoadOp>(
-          dispatchTensorLoads[1].getDefiningOp());
-  Value paddingValue1 = builder.create<arith::ConstantOp>(
-      loc, builder.getZeroAttr(dispatchTensorLoads[1]
-                                   .getType()
-                                   .cast<ShapedType>()
-                                   .getElementType()));
-  auto paddedTensorType1 =
-      RankedTensorType::get(paddedShape, getElementTypeOrSelf(dispatchLoad1));
-  Value paddedOutputValue = linalg::makeComposedPadHighOp(
-      builder, loc, paddedTensorType1, dispatchTensorLoads[1], paddingValue1,
-      false);
+    Value paddingValue = builder.create<arith::ConstantOp>(
+        loc, builder.getZeroAttr(
+                 tensorLoad.getType().cast<ShapedType>().getElementType()));
+    auto paddedTensorType0 =
+        RankedTensorType::get(paddedShape, getElementTypeOrSelf(tensorLoad));
+    Value paddedValue = linalg::makeComposedPadHighOp(
+        builder, loc, paddedTensorType0, tensorLoad, paddingValue,
+        false);
+    paddedOperands.push_back(paddedValue);
+  }
 
   // Clone linalgOp to paddedOp with padded input/output shapes.
-  SmallVector<Value> paddedOperands{paddedInputValue, paddedOutputValue};
   auto resultTensorTypes =
       ValueRange(paddedOperands).take_back(linalgOp.getNumOutputs()).getTypes();
   paddedOp = linalgOp.clone(builder, loc, resultTensorTypes, paddedOperands);
@@ -138,12 +116,11 @@ struct TransposePadOpPattern : public OpRewritePattern<linalg::GenericOp> {
       return rewriter.notifyMatchFailure(linalgOp, "filter check");
     }
     LinalgOpInfo opInfo(linalgOp, sharedMemTransposeFilter);
-    // Checks preconditions for shared mem transpose. Ensure only applied to dynamic.
+    // Checks preconditions for shared mem transpose. Only pad if op is dynamic.
     if (!opInfo.isTranspose() || !opInfo.isDynamic()) {
       return rewriter.notifyMatchFailure(linalgOp, "failed preconditions");
     }
 
-    // TODO: precondition checks
     linalg::LinalgOp paddedOp;
     FailureOr<SmallVector<Value>> newResults =
         rewriteAsPaddedOp(rewriter, linalgOp, paddedOp);
@@ -182,7 +159,6 @@ struct LLVMGPUTensorPadPass
         linalg::LinalgTransformationFilter(
             ArrayRef<StringAttr>{},
             StringAttr::get(&getContext(), getTransposePadMarker())));
-
     if (failed(applyPatternsAndFoldGreedily(getOperation(),
                                             std::move(patterns)))) {
       return signalPassFailure();
