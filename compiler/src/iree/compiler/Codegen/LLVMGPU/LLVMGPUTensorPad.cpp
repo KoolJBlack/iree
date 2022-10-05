@@ -5,26 +5,15 @@
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
 #include "iree/compiler/Codegen/Common/LinalgOpInfo.h"
+#include "iree/compiler/Codegen/LLVMGPU/TransposeUtils.h"
 #include "iree/compiler/Codegen/PassDetail.h"
 #include "iree/compiler/Codegen/Passes.h"
-#include "iree/compiler/Codegen/Utils/MarkerUtils.h"
-#include "iree/compiler/Dialect/Flow/IR/FlowDialect.h"
 #include "iree/compiler/Dialect/Flow/IR/FlowOps.h"
-#include "iree/compiler/Dialect/Flow/IR/FlowTypes.h"
-#include "llvm/ADT/MapVector.h"
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/Bufferization/IR/Bufferization.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/Tensor/IR/Tensor.h"
-#include "mlir/IR/AffineExpr.h"
-#include "mlir/IR/AffineExprVisitor.h"
-#include "mlir/IR/AffineMap.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
-#include "mlir/Transforms/Passes.h"
-#include "mlir/Transforms/SideEffectUtils.h"
-#include "iree/compiler/Codegen/Common/LinalgOpInfo.h"
-#include "iree/compiler/Codegen/LLVMGPU/TransposeUtils.h"
-
 
 #define DEBUG_TYPE "iree-llvmgpu-tensor-pad"
 
@@ -33,18 +22,18 @@ namespace iree_compiler {
 
 namespace {
 
-
-
 static FailureOr<SmallVector<Value>> rewriteAsPaddedOp(
-    PatternRewriter &builder, linalg::LinalgOp linalgOp, linalg::LinalgOp &paddedOp) {
+    PatternRewriter &rewriter, linalg::LinalgOp linalgOp,
+    linalg::LinalgOp &paddedOp) {
   Location loc = linalgOp.getLoc();
 
-  OpBuilder::InsertionGuard g(builder);
+  PatternRewriter::InsertionGuard g(rewriter);
   // Set IP after op because we also take the dims of the original output.
-  builder.setInsertionPointAfter(linalgOp);
+  rewriter.setInsertionPointAfter(linalgOp);
 
-  // Pad each operand out to 32,32
-  SmallVector<int64_t> paddedShape = {32, 32};
+  // Pad each input operand in shared memory up to the targets bounding box
+  // size. In this case, this corresponds with the maximum tile size from
+  // distributing to workgroups.
   SmallVector<Value> paddedOperands;
   paddedOperands.reserve(linalgOp.getNumInputsAndOutputs());
   for (OpOperand *opOperand : linalgOp.getInputAndOutputOperands()) {
@@ -52,31 +41,47 @@ static FailureOr<SmallVector<Value>> rewriteAsPaddedOp(
     auto tensorLoad = dyn_cast_or_null<IREE::Flow::DispatchTensorLoadOp>(
         opOperand->get().getDefiningOp());
     if (!tensorLoad) {
-      return builder.notifyMatchFailure(linalgOp, "does not have tensor load");
+      return rewriter.notifyMatchFailure(linalgOp, "does not have tensor load");
     }
 
-    Value paddingValue = builder.create<arith::ConstantOp>(
-        loc, builder.getZeroAttr(
-                 tensorLoad.getType().cast<ShapedType>().getElementType()));
-    auto paddedTensorType0 =
+    // Determine the padded shape from the load
+    ArrayRef<int64_t> shape = linalgOp.getShape(opOperand);
+    SmallVector<int64_t> paddedShape(shape.begin(), shape.end());
+    for (const auto &en : llvm::enumerate(tensorLoad.getMixedSizes())) {
+      if (Optional<int64_t> cst = getConstantIntValue(en.value())) {
+        paddedShape[en.index()] = cst.getValue();
+      } else {
+        FailureOr<int64_t> upperBound =
+            linalg::getConstantUpperBoundForIndex(en.value().get<Value>());
+        if (failed(upperBound)) {
+          return rewriter.notifyMatchFailure(
+              linalgOp, "No constant bounding box can be found for padding");
+        }
+        paddedShape[en.index()] = *upperBound;
+      }
+    }
+
+    Value paddingValue = rewriter.create<arith::ConstantOp>(
+        loc, rewriter.getZeroAttr(getElementTypeOrSelf(tensorLoad)));
+    auto paddedTensorType =
         RankedTensorType::get(paddedShape, getElementTypeOrSelf(tensorLoad));
     Value paddedValue = linalg::makeComposedPadHighOp(
-        builder, loc, paddedTensorType0, tensorLoad, paddingValue,
-        false);
+        rewriter, loc, paddedTensorType, tensorLoad, paddingValue,
+        /*nofold=*/false);
     paddedOperands.push_back(paddedValue);
   }
 
   // Clone linalgOp to paddedOp with padded input/output shapes.
   auto resultTensorTypes =
       ValueRange(paddedOperands).take_back(linalgOp.getNumOutputs()).getTypes();
-  paddedOp = linalgOp.clone(builder, loc, resultTensorTypes, paddedOperands);
+  paddedOp = linalgOp.clone(rewriter, loc, resultTensorTypes, paddedOperands);
 
   // Slice out the original shape from the padded result to pass on to
   // consumers. The original linalg op is used to provide the dims for the reify
   // result shapes.
   SmallVector<SmallVector<Value>> reifiedResultShapes;
   if (failed(cast<ReifyRankedShapedTypeOpInterface>(linalgOp.getOperation())
-                 .reifyResultShapes(builder, reifiedResultShapes))) {
+                 .reifyResultShapes(rewriter, reifiedResultShapes))) {
     return failure();
   }
 
@@ -86,12 +91,12 @@ static FailureOr<SmallVector<Value>> rewriteAsPaddedOp(
     Value paddedResult = en.value();
     int64_t resultNumber = en.index();
     int64_t rank = paddedResult.getType().cast<RankedTensorType>().getRank();
-    SmallVector<OpFoldResult> offsets(rank, builder.getIndexAttr(0));
+    SmallVector<OpFoldResult> offsets(rank, rewriter.getIndexAttr(0));
     SmallVector<OpFoldResult> sizes;
     for (Value v : reifiedResultShapes[resultNumber])
       sizes.push_back(getAsOpFoldResult(v));
-    SmallVector<OpFoldResult> strides(rank, builder.getIndexAttr(1));
-    paddedSubviewResults.push_back(builder.create<tensor::ExtractSliceOp>(
+    SmallVector<OpFoldResult> strides(rank, rewriter.getIndexAttr(1));
+    paddedSubviewResults.push_back(rewriter.create<tensor::ExtractSliceOp>(
         loc, paddedResult, offsets, sizes, strides));
   }
   return paddedSubviewResults;
@@ -117,7 +122,8 @@ struct TransposePadOpPattern : public OpRewritePattern<linalg::GenericOp> {
     }
     LinalgOpInfo opInfo(linalgOp, sharedMemTransposeFilter);
     // Checks preconditions for shared mem transpose. Only pad if op is dynamic.
-    if (!opInfo.isTranspose() || !opInfo.isDynamic()) {
+    if (!opInfo.isTranspose() || !opInfo.isDynamic() ||
+        !hasTwoOrThreeLoopsInfo(linalgOp)) {
       return rewriter.notifyMatchFailure(linalgOp, "failed preconditions");
     }
 
@@ -142,23 +148,17 @@ struct TransposePadOpPattern : public OpRewritePattern<linalg::GenericOp> {
 
 struct LLVMGPUTensorPadPass
     : public LLVMGPUTensorPadBase<LLVMGPUTensorPadPass> {
- private:
- public:
-  LLVMGPUTensorPadPass() {}
-
   void getDependentDialects(DialectRegistry &registry) const override {
     registry.insert<bufferization::BufferizationDialect>();
   }
   void runOnOperation() override {
-    llvm::dbgs() << "runOnOperation()\n";
     auto funcOp = getOperation();
 
     RewritePatternSet patterns(funcOp.getContext());
     patterns.add<TransposePadOpPattern>(
-        &getContext(),
-        linalg::LinalgTransformationFilter(
-            ArrayRef<StringAttr>{},
-            StringAttr::get(&getContext(), getTransposePadMarker())));
+        &getContext(), linalg::LinalgTransformationFilter(
+                           ArrayRef<StringAttr>{},
+                           StringAttr::get(&getContext(), "transpose_pad")));
     if (failed(applyPatternsAndFoldGreedily(getOperation(),
                                             std::move(patterns)))) {
       return signalPassFailure();
@@ -168,8 +168,6 @@ struct LLVMGPUTensorPadPass
     funcOp->walk([&](linalg::LinalgOp op) {
       op->removeAttr(linalg::LinalgTransforms::kLinalgTransformMarker);
     });
-
-    llvm::dbgs() << "Done with runOnOperation()\n";
   }
 };
 }  // namespace
