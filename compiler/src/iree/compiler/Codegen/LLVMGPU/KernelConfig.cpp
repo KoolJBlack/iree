@@ -63,6 +63,7 @@ struct TargetInfo {
   // TODO: add finer grain control for other tensorcore types.
   bool hasTF32TensorCore = false;
   bool hasWarpShuffle = false;
+  bool isTensorCoreTranspose = false;
 };
 
 struct TileWorkgroupSizePair {
@@ -154,6 +155,7 @@ static TargetInfo getTargetInfo(func::FuncOp entryPoint) {
   }
   int64_t smVersion = version.getZExtValue();
   if (smVersion >= 80) info.hasTF32TensorCore = true;
+  if (smVersion == 80 || smVersion == 86) info.isTensorCoreTranspose = true;
   return info;
 }
 
@@ -161,7 +163,8 @@ static bool supportsTensorCore(func::FuncOp entryPoint, linalg::LinalgOp op,
                                const TargetInfo &targetInfo) {
   // Limit tensor core pipeline to matmul as not all combinations of transpose
   // are supported upstream.
-  if (!targetInfo.hasTF32TensorCore) return false;
+  // if (!targetInfo.hasTF32TensorCore) return false;
+  if (!targetInfo.isTensorCoreTranspose) return false;
   if (!(isa<linalg::MatmulOp>(op) || isa<linalg::BatchMatmulOp>(op))) {
     assert(linalg::isaContractionOpInterface(op));
     // If this is not a named op matmul check some properties to make sure that
