@@ -206,11 +206,15 @@ static void buildOptionalPreprocessingPassPipeline(OpPassManager &passManager) {
           []() {
             return IREE::Flow::createConvertLinalgMatmulToMmt4DPass(
                 clMmt4dTargetOptions);
-          })
-      .addPredicatedPass(clEnablePaddingLinalgOps, []() {
-        return IREE::Flow::createPadLinalgOpsToIntegerMultiplePass(
-            clLinalgOpsPaddingSize);
-      });
+          });
+    //   .addPredicatedPass(clEnablePaddingLinalgOps, []() {
+    //     return IREE::Flow::createPadLinalgOpsToIntegerMultiplePass(
+    //         clLinalgOpsPaddingSize);
+    //   });
+  if (clEnablePaddingLinalgOps) {
+    passManager.addPass(IREE::Flow::createPadLinalgOpsToIntegerMultiplePass(
+        clLinalgOpsPaddingSize));
+  }
 }
 
 void buildFlowTransformPassPipeline(OpPassManager &passManager,

@@ -173,7 +173,7 @@ def OutlineDispatchRegions :
 }
 
 def PadLinalgOps :
-    Pass<"iree-flow-pad-linalg-ops", ""> {
+    Pass<"iree-flow-pad-linalg-ops", "mlir::ModuleOp"> {
   let summary = "Pad linalg ops to the next integer multiple of paddingSize.";
   let constructor = "mlir::iree_compiler::IREE::Flow::createPadLinalgOpsToIntegerMultiplePass()";
 }

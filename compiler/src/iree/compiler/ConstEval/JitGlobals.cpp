@@ -156,6 +156,7 @@ struct JitGlobalsPass : public JitGlobalsBase<JitGlobalsPass> {
   }
 
   void runOnOperation() override {
+    llvm::dbgs() << "runOnOperation() \n";
     auto outerModule = getOperation();
     SymbolTable outerSymbolTable(outerModule);
     OpBuilder builder = OpBuilder::atBlockEnd(outerModule.getBody());
@@ -163,10 +164,17 @@ struct JitGlobalsPass : public JitGlobalsBase<JitGlobalsPass> {
     ProgramExtractor extractor(outerModule, innerModule);
     SmallVector<Operation *> pruneOps;
 
+    llvm::dbgs() << "outerModule: " << outerModule.getName() << " \n";
+    llvm::dbgs() << "innerModule: " << innerModule.getName() << " \n";
+    outerModule.dump();
+
     // Import initializers.
     for (auto childOp : outerModule.getOps<IREE::Util::InitializerOp>()) {
       extractor.importOperation(childOp);
       pruneOps.push_back(childOp);
+      llvm::dbgs() << "adding prune op(InitializerOp): " << childOp->getName() << " \n";
+      childOp.dump();
+      llvm::dbgs() << "---\n";
     }
 
     // Transitively import any dependencies.
@@ -193,6 +201,8 @@ struct JitGlobalsPass : public JitGlobalsBase<JitGlobalsPass> {
 
       StringAttr funcSymbol = extractor.createAccessor(globalOp);
       uninitializedGlobals.emplace_back(funcSymbol, globalOp.getSymNameAttr());
+
+      llvm::dbgs() << "uninitializedGlobals: " << funcSymbol << " -- " <<  globalOp.getSymNameAttr()<< "\n";
     }
 
     // Early exit without compiling if no entry-points (this is not just an
