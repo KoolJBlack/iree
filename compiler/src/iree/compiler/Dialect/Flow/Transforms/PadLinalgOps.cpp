@@ -17,6 +17,7 @@
 #include "mlir/IR/OpDefinition.h"
 #include "mlir/Pass/Pass.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
+#include "llvm/Support/Debug.h"
 
 namespace mlir {
 namespace iree_compiler {
@@ -185,10 +186,15 @@ struct TransposePadToPadTransposeOp : public OpRewritePattern<tensor::PadOp> {
 
     // Create a new PadOp.
 
+    llvm::dbgs() << "TransposePadToPadTransposeOp: This is our starting pad: \n";
+    genericOp.dump();
+    padOp.dump();
+
     // Apply reverse transpose to get the low/high paddings and the new shape.
     OpOperand *transposeInput = genericOp.getDpsInputOperand(0);
     AffineMap indexingMap = genericOp.getMatchingIndexingMap(transposeInput);
 
+    // The old pad is after the transpose feeding into matmul
     auto oldHiPad = padOp.getMixedHighPad();
     SmallVector<OpFoldResult> newHiPad(oldHiPad);
     RankedTensorType oldPadType = padOp.getResultType();
@@ -203,11 +209,12 @@ struct TransposePadToPadTransposeOp : public OpRewritePattern<tensor::PadOp> {
     }
     auto newPadResultType =
         RankedTensorType::get(newShape, oldPadType.getElementType());
+    // This is the new pad that will go before the transpose, not
     auto newPadOp = rewriter.create<tensor::PadOp>(
         padOp.getLoc(), newPadResultType, transposeInput->get(),
         padOp.getMixedLowPad(), newHiPad, padOp.getConstantPaddingValue());
 
-    // Reuse the old PadOp for the init operand for the transpose.
+    // Reuse the old PadOp for the init (output) operand for the transpose???
     auto newPadOpForInit = rewriter.create<tensor::PadOp>(
         padOp.getLoc(), padOp.getResultType(),
         genericOp.getDpsInitOperand(0)->get(), padOp.getMixedLowPad(),
@@ -223,6 +230,27 @@ struct TransposePadToPadTransposeOp : public OpRewritePattern<tensor::PadOp> {
     rewriter.inlineRegionBefore(genericOp.getRegion(), newTranspose.getRegion(),
                                 newTranspose.getRegion().begin());
     rewriter.replaceOp(padOp, newTranspose->getResult(0));
+
+    llvm::dbgs() << "Results after pad change: \n";
+    newPadOp.dump();
+    newPadOpForInit.dump();
+    newTranspose.dump();
+    llvm::dbgs() << "---\n";
+    llvm::dbgs() << "Input into new pad: \n";
+    auto globalLoadOp = newPadOp.getSource().getDefiningOp<IREE::Util::GlobalLoadOp>();
+    if (globalLoadOp) {
+      globalLoadOp.dump();
+      llvm::dbgs() << "getGlobal: " << globalLoadOp.getGlobal() << " getGlobalAttrName: "<<  globalLoadOp.getGlobalAttrName() <<  "\n";
+      globalLoadOp.getType().dump();
+      llvm::dbgs() << "\n---\n";
+
+      // auto globalLoadedValue = globalLoadOp.;
+      // auto globalOpName = globalLoadOp.getGlobal();
+      llvm::dbgs() << "\n---\n";
+
+    }
+
+
     return success();
   }
 };
@@ -240,6 +268,9 @@ class PadMatmulOp : public OpInterfaceRewritePattern<linalg::LinalgOp> {
     const bool isBatchMatmul = isa<linalg::BatchMatmulOp>(op);
     const bool isMatmul = isa<linalg::MatmulOp>(op);
     if (!isBatchMatmul && !isMatmul) return failure();
+
+    // llvm::dbgs() << "PadMatmulOp: starting matmul \n";
+    // linalgOp.dump();
 
     Location loc = linalgOp.getLoc();
     Value lhs = linalgOp.getDpsInputOperand(0)->get();
@@ -322,6 +353,15 @@ class PadMatmulOp : public OpInterfaceRewritePattern<linalg::LinalgOp> {
       auto paddedMatmulOp =
           mlir::clone(rewriter, linalgOp, {resultType},
                       ArrayRef<Value>{paddedLhs, paddedRhs, result});
+
+      llvm::dbgs() << "PadMatmulOp: starting matmul \n";
+      linalgOp.dump();
+      llvm::dbgs() << "Final padded mamtul K: \n";
+      paddedLhs.dump();
+      paddedRhs.dump();
+      paddedMatmulOp->dump();
+      llvm::dbgs() << "---\n";
+
       rewriter.replaceOp(linalgOp, paddedMatmulOp->getResults());
     } else {
       auto newResultType = RankedTensorType::get(
@@ -334,6 +374,14 @@ class PadMatmulOp : public OpInterfaceRewritePattern<linalg::LinalgOp> {
       auto paddedMatmulOp =
           mlir::clone(rewriter, linalgOp, {newResultType},
                       ArrayRef<Value>{paddedLhs, paddedRhs, paddedResult});
+
+      llvm::dbgs() << "PadMatmulOp: starting matmul \n";
+      linalgOp.dump();
+      llvm::dbgs() << "Final padded mamtul: \n";
+      paddedLhs.dump();
+      paddedRhs.dump();
+      paddedMatmulOp->dump();
+      llvm::dbgs() << "---\n";
 
       auto zero = rewriter.getI64IntegerAttr(0);
       auto one = rewriter.getI64IntegerAttr(1);
@@ -367,13 +415,22 @@ class PadLinalgOpsPass : public PadLinalgOpsBase<PadLinalgOpsPass> {
     registry.insert<linalg::LinalgDialect>();
   }
   void runOnOperation() override {
+    llvm::dbgs() << "runOnOperation() -- paddingSize: " << paddingSize <<"\n";
     MLIRContext *context = &getContext();
+    auto funcOp = getOperation();
+
+
+
+    llvm::dbgs() << "ModuleOP name: " << funcOp->getName() << "\n";
+
     RewritePatternSet patterns(context);
     patterns.insert<PadMatmulOp>(context, paddingSize);
     if (failed(applyPatternsAndFoldGreedily(getOperation(),
                                             std::move(patterns)))) {
       return signalPassFailure();
     }
+
+    llvm::dbgs() << "runOnOperation() -- starting TransposePadToPadTransposeOp \n";
 
     patterns.clear();
     patterns.insert<TransposePadToPadTransposeOp>(context);
@@ -390,6 +447,7 @@ class PadLinalgOpsPass : public PadLinalgOpsBase<PadLinalgOpsPass> {
 }  // namespace
 
 std::unique_ptr<Pass> createPadLinalgOpsToIntegerMultiplePass(int paddingSize) {
+  // llvm::dbgs() << "createPadLinalgOpsToIntegerMultiplePass() -- paddingSize: " << paddingSize <<"\n";
   return std::make_unique<PadLinalgOpsPass>(paddingSize);
 }
 

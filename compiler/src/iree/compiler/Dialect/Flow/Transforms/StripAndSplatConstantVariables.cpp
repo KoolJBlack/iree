@@ -17,6 +17,7 @@
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/BuiltinTypes.h"
 #include "mlir/Pass/Pass.h"
+#include "llvm/Support/Debug.h"
 
 namespace mlir {
 namespace iree_compiler {
@@ -34,6 +35,7 @@ class StripAndSplatConstantVariablesPass
   }
 
   void runOnOperation() override {
+    llvm::dbgs() << "runOnOperation() \n";
     auto moduleOp = getOperation();
     auto builder = OpBuilder::atBlockBegin(moduleOp.getBody());
 

@@ -191,10 +191,14 @@ static void buildOptionalPreprocessingPassPipeline(OpPassManager &passManager) {
                          IREE::LinalgExt::createConvertConv2DToWinogradPass)
       .addPredicatedPass(clEnableConvToImg2Col,
                          IREE::Flow::createConvertConv2DToImg2ColPass)
-      .addPredicatedPass(clEnablePaddingLinalgOps, []() {
-        return IREE::Flow::createPadLinalgOpsToIntegerMultiplePass(
-            clLinalgOpsPaddingSize);
-      });
+    //   .addPredicatedPass(clEnablePaddingLinalgOps, []() {
+    //     return IREE::Flow::createPadLinalgOpsToIntegerMultiplePass(
+    //         clLinalgOpsPaddingSize);
+    //   });
+  if (clEnablePaddingLinalgOps) {
+    passManager.addPass(IREE::Flow::createPadLinalgOpsToIntegerMultiplePass(
+        clLinalgOpsPaddingSize));
+  }
 }
 
 void buildFlowTransformPassPipeline(OpPassManager &passManager,
