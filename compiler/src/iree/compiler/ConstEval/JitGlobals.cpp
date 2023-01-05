@@ -230,9 +230,12 @@ struct JitGlobalsPass : public JitGlobalsBase<JitGlobalsPass> {
     innerModule.erase();
 
     bool modified = false;
+    llvm::dbgs() << "Looking up symbols 1\n";
+
     for (auto &it : uninitializedGlobals) {
       StringAttr funcSymbol = it.first;
       StringAttr globalSymbol = it.second;
+      llvm::dbgs() << "The globalSymbol: " << globalSymbol << "\n";
       auto targetGlobal = llvm::cast<IREE::Util::GlobalOp>(
           outerSymbolTable.lookup(globalSymbol));
       Location loc = targetGlobal->getLoc();
