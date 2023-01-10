@@ -61,147 +61,12 @@ static bool isSimpleTranspose(linalg::GenericOp op) {
   return true;
 }
 
-static bool padTensor(Location loc, OpOperand *operand,
-                      llvm::ArrayRef<int64_t> alignments, OpBuilder &builder) {
-  Value original = operand->get();
-  auto type = original.getType().cast<RankedTensorType>();
-  ArrayRef<int64_t> shape = type.getShape();
-
-  // New dimensions.
-  SmallVector<int64_t> newStaticDims(shape.begin(), shape.end());
-  SmallVector<OpFoldResult> newPaddingSizes(shape.size(),
-                                            builder.getI64IntegerAttr(0));
-
-  // Compute padded dims.
-  bool needsPad = false;
-
-  llvm::dbgs() << "PadTransposeOp: padding to new static dim: \n";
-  for (int i = 0, e = shape.size(); i < e; ++i) {
-    auto inputDim = shape[i];
-    auto alignment = alignments[i];
-    assert(inputDim >= 0);
-    // Static dim.
-    if ((inputDim % alignment) == 0) {
-      llvm::dbgs() << "already aligned dim at i(" << i << ") from " << inputDim <<  " with alignment: " << alignment<< " \n";
-
-      newStaticDims[i] = inputDim;
-      continue;
-    }
-    int64_t alignedDim = (inputDim + (alignment - 1)) & ~(alignment - 1);
-
-    llvm::dbgs() << "dim at i(" << i << ") from " << inputDim <<  " to "  <<  alignedDim << " with alignment: " << alignment<< " \n";
-
-    newStaticDims[i] = alignedDim;
-    newPaddingSizes[i] = builder.getI64IntegerAttr(alignedDim - inputDim);
-    needsPad = true;
-  }
-  if (!needsPad){
-    return false;
-  }
-
-  auto resultType = RankedTensorType::get(newStaticDims, type.getElementType());
-  Value zeroConstant = builder.create<arith::ConstantOp>(
-      loc, builder.getZeroAttr(type.getElementType()));
-  SmallVector<OpFoldResult> zeroStaticLow(shape.size(),
-                                          builder.getI64IntegerAttr(0));
-  SmallVector<Value> nullLow;
-  Value padded = builder.create<tensor::PadOp>(loc, resultType, operand->get(),
-                                               zeroStaticLow, newPaddingSizes,
-                                               zeroConstant);
-  operand->set(padded);
-  return true;
-}
-
-static FailureOr<Value> newPadTensor(PatternRewriter &rewriter, Location loc, OpOperand *operand,
-                      llvm::ArrayRef<int64_t> alignments ) {
-  Operation* op = operand->get().getDefiningOp();
-  //   if (!tensorLoad) {
-  //   return rewriter.notifyMatchFailure(linalgOp, "does not have tensor load");
-  // }
-
-  Value originalValue = operand->get();
-  auto originalType = originalValue.getType().cast<RankedTensorType>();
-  ArrayRef<int64_t> originalShape = originalType.getShape();
-
-
-  // Determine the padded shape using the alignment
-  SmallVector<int64_t> paddedShape(originalShape.begin(), originalShape.end());
-  llvm::dbgs() << "PadTransposeOp: padding to new static dim: \n";
-  bool needsPad = false;
-  for (int i = 0, e = originalShape.size(); i < e; ++i) {
-    auto inputDim = originalShape[i];
-    auto alignment = alignments[i];
-    assert(inputDim >= 0);
-    // Static dim.
-    if ((inputDim % alignment) == 0) {
-      paddedShape[i] = inputDim;
-      continue;
-    }
-    int64_t alignedDim = (inputDim + (alignment - 1)) & ~(alignment - 1);
-
-    llvm::dbgs() << "from " << inputDim <<  " to "  <<  alignedDim << " \n";
-
-    paddedShape[i] = alignedDim;
-    needsPad = true;
-  }
-  if (!needsPad) {
-    return rewriter.notifyMatchFailure(op, "Op does not need to be padded");
-  }
-
-  Value paddingValue = rewriter.create<arith::ConstantOp>(
-      loc, rewriter.getZeroAttr(originalType.getElementType()));
-  auto paddedTensorResultType =
-      RankedTensorType::get(paddedShape, originalType.getElementType());
-
-  auto zero = rewriter.getI64IntegerAttr(0);
-  SmallVector<OpFoldResult> low(paddedTensorResultType.getRank(), zero);
-  SmallVector<OpFoldResult> high(paddedTensorResultType.getRank(), zero);
-  Value paddedValue = rewriter.create<tensor::PadOp>(loc, paddedTensorResultType, operand->get(), low, high, paddingValue, /*nofold=*/false);
-
-  return paddedValue;
-}
-
-// Pads the leading (fastest moving) dimension of the operand to a multiple of the alignment size
-static bool padLeadingDim(PatternRewriter &rewriter, Location loc,
-                          linalg::LinalgOp linalgOp, OpOperand *opOperand,
-                          int64_t alignment) {
-  Value originalValue = opOperand->get();
-  auto originalType = originalValue.getType().cast<RankedTensorType>();
-  ArrayRef<int64_t> originalShape = originalType.getShape();
-
-  // All alignments are 1 except for leading dimension.
-  SmallVector<int64_t> alignments(originalShape.size(), 1);
-  alignments.back() = alignment;
-
-
-  // // Determine the padded shape from the load
-  // ArrayRef<int64_t> shape = linalgOp.getShape(opOperand);
-  // SmallVector<int64_t> paddedShape(shape.begin(), shape.end());
-  // for (const auto &[index, size] :
-  //       llvm::enumerate(tensorLoad.getMixedSizes())) {
-  //   if (Optional<int64_t> cst = getConstantIntValue(size)) {
-  //     paddedShape[index] = cst.value();
-  //   } else {
-  //     FailureOr<int64_t> upperBound =
-  //         linalg::getConstantUpperBoundForIndex(size.get<Value>());
-  //     if (failed(upperBound)) {
-  //       return rewriter.notifyMatchFailure(
-  //           linalgOp, "No constant bounding box can be found for padding");
-  //     }
-  //     paddedShape[index] = *upperBound;
-  //   }
-  // }
-
-  // Now pad
-  padTensor(loc, opOperand, alignments, rewriter);
-
-  return true;
-}
-
 static FailureOr<SmallVector<Value>> rewriteAsPaddedOp(
-    IRRewriter &rewriter, linalg::LinalgOp linalgOp,
-    linalg::LinalgOp &paddedOp) {
+    PatternRewriter &rewriter, linalg::LinalgOp linalgOp,
+    linalg::LinalgOp &paddedOp, int64_t alignment) {
   Location loc = linalgOp.getLoc();
+
+  llvm::dbgs() << "rewriteAsPaddedOp: begin \n";
 
   IRRewriter::InsertionGuard g(rewriter);
   // Set IP after op because we also take the dims of the original output.
@@ -213,40 +78,62 @@ static FailureOr<SmallVector<Value>> rewriteAsPaddedOp(
   SmallVector<Value> paddedOperands;
   paddedOperands.reserve(linalgOp.getNumDpsInputs() +
                          linalgOp.getNumDpsInits());
+  bool needsPad = false;
   for (OpOperand &opOperand : linalgOp->getOpOperands()) {
+    llvm::dbgs() << "rewriteAsPaddedOp: looking at opperand \n";
+    opOperand.get().getDefiningOp()->dump();
+    Value operandSource = opOperand.get();
     // Find DispatchTensorLoadOp's feeding into the linalg or abort.
-    auto tensorLoad = dyn_cast_or_null<IREE::Flow::DispatchTensorLoadOp>(
-        opOperand.get().getDefiningOp());
-    if (!tensorLoad) {
-      return rewriter.notifyMatchFailure(linalgOp, "does not have tensor load");
+    // auto globalLoadOp = dyn_cast_or_null<Util::GlobalLoadOp>(
+    //     opOperand.get().getDefiningOp());
+    // if (!globalLoadOp) {
+    //   return rewriter.notifyMatchFailure(linalgOp, "does not have tensor
+    //   load");
+    // }
+
+    auto tensorType = opOperand.get().getType().cast<RankedTensorType>();
+    if (!tensorType) {
+      return rewriter.notifyMatchFailure(linalgOp, "does not have tensor type");
     }
 
     // Determine the padded shape from the load
     ArrayRef<int64_t> shape = linalgOp.getShape(&opOperand);
     SmallVector<int64_t> paddedShape(shape.begin(), shape.end());
-    for (const auto &[index, size] :
-         llvm::enumerate(tensorLoad.getMixedSizes())) {
-      if (Optional<int64_t> cst = getConstantIntValue(size)) {
-        paddedShape[index] = cst.value();
-      } else {
-        FailureOr<int64_t> upperBound =
-            linalg::getConstantUpperBoundForIndex(size.get<Value>());
-        if (failed(upperBound)) {
-          return rewriter.notifyMatchFailure(
-              linalgOp, "No constant bounding box can be found for padding");
-        }
-        paddedShape[index] = *upperBound;
+    SmallVector<OpFoldResult> paddedSizes(shape.size(),
+                                          rewriter.getI64IntegerAttr(0));
+
+    for (const auto &[index, size] : llvm::enumerate(shape)) {
+      int64_t alignedDim =
+          (paddedShape[index] + (alignment - 1)) & ~(alignment - 1);
+      llvm::dbgs() << "from " << paddedShape[index] << " to " << alignedDim
+                   << " \n";
+
+      paddedShape[index] = alignedDim;
+      paddedSizes[index] = rewriter.getI16IntegerAttr(alignedDim - size);
+
+      if (alignedDim - size != 0) {
+        needsPad = true;
       }
     }
 
-    Value paddingValue = rewriter.create<arith::ConstantOp>(
-        loc, rewriter.getZeroAttr(getElementTypeOrSelf(tensorLoad)));
     auto paddedTensorType =
-        RankedTensorType::get(paddedShape, getElementTypeOrSelf(tensorLoad));
-    Value paddedValue = linalg::makeComposedPadHighOp(
-        rewriter, loc, paddedTensorType, tensorLoad, paddingValue,
-        /*nofold=*/false);
+        RankedTensorType::get(paddedShape, tensorType.getElementType());
+    Value paddingValue = rewriter.create<arith::ConstantOp>(
+        loc, rewriter.getZeroAttr(tensorType.getElementType()));
+    SmallVector<OpFoldResult> zeroStaticLow(shape.size(),
+                                            rewriter.getI64IntegerAttr(0));
+    Value paddedValue = rewriter.create<tensor::PadOp>(
+        loc, /*Global Load=*/paddedTensorType, operandSource, zeroStaticLow,
+        paddedSizes, paddingValue);
+
+    llvm::dbgs() << "Dumping padded opperand:\n";
+    // paddedValue.getDefiningOp()->dump();
+    paddedValue.dump();
     paddedOperands.push_back(paddedValue);
+  }
+  if (!needsPad) {
+    llvm::dbgs() << "Nothing to pad...\n";
+    return rewriter.notifyMatchFailure(linalgOp, "No operands need padding.");
   }
 
   // Clone linalgOp to paddedOp with padded input/output shapes.
@@ -254,6 +141,9 @@ static FailureOr<SmallVector<Value>> rewriteAsPaddedOp(
                                .take_back(linalgOp.getNumDpsInits())
                                .getTypes();
   paddedOp = mlir::clone(rewriter, linalgOp, resultTensorTypes, paddedOperands);
+
+  llvm::dbgs() << "Dumping padded result:\n";
+  paddedOp.dump();
 
   // Slice out the original shape from the padded result to pass on to
   // consumers. The original linalg op is used to provide the dims for the reify
@@ -277,6 +167,9 @@ static FailureOr<SmallVector<Value>> rewriteAsPaddedOp(
     paddedSubviewResults.push_back(rewriter.create<tensor::ExtractSliceOp>(
         loc, paddedResult, offsets, sizes, strides));
   }
+
+  llvm::dbgs() << "Success!!!\n\n";
+
   return paddedSubviewResults;
 }
 
@@ -291,8 +184,6 @@ class PadTransposeOp : public OpInterfaceRewritePattern<linalg::LinalgOp> {
 
   LogicalResult matchAndRewrite(linalg::LinalgOp linalgOp,
                                 PatternRewriter &rewriter) const override {
-    Location loc = linalgOp.getLoc();
-
     // Single op in/out.
     if (linalgOp.getNumDpsInits() != 1) return failure();
     if (linalgOp.getNumDpsInputs() != 1) return failure();
@@ -305,11 +196,10 @@ class PadTransposeOp : public OpInterfaceRewritePattern<linalg::LinalgOp> {
     }
 
     // Check if inputs have a shaped type and padding is needed.
-    bool isPaddingNeeded = false;
     OpOperand *opOperand = linalgOp.getDpsInputOperand(0);
     auto tensorType = opOperand->get().getType().dyn_cast<RankedTensorType>();
     if (!tensorType || !tensorType.hasStaticShape()) {
-      return rewriter.notifyMatchFailure(linalgOp, "op operands aren't tensor type");
+      return rewriter.notifyMatchFailure(linalgOp, "op operands aren't static tensor type");
     }
 
     //TODO: this is a hack. For now only look at 2d transposes.
@@ -317,37 +207,31 @@ class PadTransposeOp : public OpInterfaceRewritePattern<linalg::LinalgOp> {
       return failure();
     }
 
-    for (auto dimIndexSize : llvm::enumerate(tensorType.getShape())) {
-      // if (dimIndexSize.index() == 0 && dimIndexSize.value() == 1) {
-      //   // We dont' care about leading batch dimensions that are 1
-      //   continue;
-      // }
-      if (!isPaddingNeeded && dimIndexSize.value() % paddingSize != 0)
-        isPaddingNeeded = true;
+    bool isPaddingNeeded = false;
+    for (OpOperand &opOperand : linalgOp->getOpOperands()) {
+      for (const auto &[index, size] :
+           llvm::enumerate(linalgOp.getShape(&opOperand))) {
+        if (!isPaddingNeeded && size % paddingSize != 0)
+          isPaddingNeeded = true;
+      }
     }
-    if (!isPaddingNeeded) return failure();
+    if (!isPaddingNeeded) {
+      return rewriter.notifyMatchFailure(linalgOp, "no padding needed");
+    }
 
     llvm::dbgs() << "PadTransposeOp: Is this our starting transpose? \n";
     linalgOp.dump();
-    llvm::dbgs() << opInfo.isTranspose() << "\n\n";
 
-
-
-    // create a new operand
-    opOperand->get().dump();
-    llvm::dbgs() <<"***\n";
-    padLeadingDim(rewriter, loc, linalgOp, opOperand, paddingSize);
-
-    OpOperand *output = linalgOp.getDpsInitOperand(0);
-    Value origOutput = output->get();
-    OpResult result = linalgOp.getOperation()->getResult(0);
-    if (padLeadingDim(rewriter, loc,linalgOp, output, paddingSize)) {
-      result.setType(output->get().getType());
-
-      rewriter.setInsertionPoint(linalgOp.getOperation());
-      Operation *slicedResult = sliceTensor(loc, result, origOutput, rewriter);
-      result.replaceAllUsesWith(slicedResult->getResult(0));
+    linalg::LinalgOp paddedOp;
+    FailureOr<SmallVector<Value>> newResults =
+        rewriteAsPaddedOp(rewriter, linalgOp, paddedOp, paddingSize);
+    if (failed(newResults)) {
+      llvm::dbgs() << "rewriteAsPaddedOp: returned failure :( \n";
+      return failure();
     }
+
+    // Replace the original operation to pad.
+    rewriter.replaceOp(linalgOp, *newResults);
 
     return success();
   }
@@ -441,9 +325,7 @@ struct TransposePadToPadTransposeOp : public OpRewritePattern<tensor::PadOp> {
       // auto globalLoadedValue = globalLoadOp.;
       // auto globalOpName = globalLoadOp.getGlobal();
       llvm::dbgs() << "\n---\n";
-
     }
-
 
     return success();
   }
