@@ -331,6 +331,130 @@ struct TransposePadToPadTransposeOp : public OpRewritePattern<tensor::PadOp> {
   }
 };
 
+class BubbleUpPad : public OpRewritePattern<tensor::PadOp> {
+ public:
+  BubbleUpPad(MLIRContext *context, PatternBenefit benefit = 1)
+      : OpRewritePattern(context, benefit) {}
+  LogicalResult matchAndRewrite(tensor::PadOp padOp,
+                                PatternRewriter &rewriter) const override {
+  //  Location loc = padOp.getLoc();
+    if (!padOp.hasZeroLowPad()) {
+      return rewriter.notifyMatchFailure(padOp, "expected zero low pad");
+    }
+
+    Operation *operandProducer = padOp.getOperand(0).getDefiningOp();
+    if (auto producerLinalgOp = dyn_cast<linalg::GenericOp>(operandProducer)) {
+      // Preconditions:
+      // No reduction loops for linalg
+      // All types must match TensorType (of the pad)
+      if (producerLinalgOp.getNumReductionLoops() != 0) {
+        return rewriter.notifyMatchFailure(padOp,
+                                           "producer cannot have reductions");
+      }
+      if (!producerLinalgOp.hasTensorSemantics()) {
+        return rewriter.notifyMatchFailure(padOp,
+                                           "producer need tensor semantics");
+      }
+      if (producerLinalgOp.getNumDpsInits() != 1) {
+        return rewriter.notifyMatchFailure(padOp,
+                                           "producer need single output");
+      }
+
+      llvm::dbgs() << "BubbleUpPad: This is our starting pad on Linalg: \n";
+      padOp.dump();
+      producerLinalgOp.dump();
+      llvm::dbgs() << "\n";
+
+      // Find the output affine map
+      AffineMap resultAffineMap = producerLinalgOp.getMatchingIndexingMap(
+          producerLinalgOp.getDpsInitOperand(0));
+
+      producerLinalgOp.getDpsInitOperand(0)->get().dump();
+producerLinalgOp.getMatchingIndexingMap(
+          producerLinalgOp.getDpsInitOperand(0)).dump();
+      // Output maps should always be identities...
+      if (!resultAffineMap.isIdentity()) {
+        llvm::dbgs() << "output of linalg is not identity \n";
+        return rewriter.notifyMatchFailure(padOp,
+                                           "output of linalg is not identity");
+      }
+
+      // auto resultPaddedShape = padOp.getType().cast<RankedTensorType>().getShape();
+
+      // The old pad is after the transpose feeding into matmul
+      auto oldHiPad = padOp.getMixedHighPad();
+      SmallVector<OpFoldResult> newHiPad(oldHiPad);
+      RankedTensorType oldPadType = padOp.getResultType();
+      ArrayRef<int64_t> oldPadShape = oldPadType.getShape();
+      SmallVector<int64_t> newShape(oldPadShape);
+
+      // Map the padded shape of the output to the
+      SmallVector<int64_t> inputPaddedShapes;
+      for (OpOperand* opOperand : producerLinalgOp.getDpsInputOperands()) {
+        AffineMap operandMap = producerLinalgOp.getMatchingIndexingMap(opOperand);
+        ArrayRef<int64_t> opShape = producerLinalgOp.getShape(opOperand);
+        SmallVector<int64_t> inputPaddedShape(opShape.begin(), opShape.end());
+
+
+        llvm::dbgs() << "Inspecting opOperand with shape: " << opShape[0] << ", " << opShape[1] << "\n";
+        operandMap.dump();
+        for (auto en : enumerate(operandMap.getResults())) {
+          unsigned pos = en.value().cast<AffineDimExpr>().getPosition();
+          unsigned index = en.index();
+          newHiPad[pos] = oldHiPad[index];
+          newShape[pos] = oldPadShape[index];
+          llvm::dbgs() << "AffineMap: index " << index << " maps to pos " << pos << "\n";
+        }
+      }
+
+
+    }
+    else if(auto producerLinalgOp = dyn_cast<tensor::ReshapeOp>(operandProducer)) {
+
+    }
+
+    // auto producerLinalgOp = dyn_cast_or_null<linalg::LinalgOp>(
+    //     padOp.getOperand(0).getDefiningOp());
+    // if (!producerLinalgOp) {
+    //   return rewriter.notifyMatchFailure(padOp, "producer is not linalg");
+    // }
+
+
+
+    return failure();
+  }
+
+ private:
+};
+
+class BubbleDownExtract : public OpRewritePattern<tensor::ExtractSliceOp> {
+ public:
+  BubbleDownExtract(MLIRContext *context, PatternBenefit benefit = 1)
+      : OpRewritePattern(context, benefit) {}
+  LogicalResult matchAndRewrite(tensor::ExtractSliceOp extractSliceOp,
+                                PatternRewriter &rewriter) const override {
+  //  Location loc = padOp.getLoc();
+
+    Operation *operandConsumer = extractSliceOp.getOperand(0).getDefiningOp();
+    operandConsumer->dump();
+    auto consumerLinalgOp = dyn_cast_or_null<linalg::LinalgOp>(
+        extractSliceOp.getResult().getDefiningOp());
+    if (!consumerLinalgOp) {
+      return rewriter.notifyMatchFailure(extractSliceOp, "consumer is not linalg");
+    }
+
+    llvm::dbgs() << "BubbleDownExtract: This is our starting extract slice: \n";
+    extractSliceOp.dump();
+    consumerLinalgOp.dump();
+    llvm::dbgs() << "\n";
+
+
+    return failure();
+  }
+
+ private:
+};
+
 /// A pattern to pad statically shaped matmul operands to the next integer
 /// multiple of padSize.
 class PadMatmulOp : public OpInterfaceRewritePattern<linalg::LinalgOp> {
@@ -495,7 +619,6 @@ class PadLinalgOpsPass : public PadLinalgOpsBase<PadLinalgOpsPass> {
     MLIRContext *context = &getContext();
     auto moduleOp = getOperation();
     llvm::dbgs() << "ModuleOP name: " << moduleOp->getName() << "\n";
-
     SymbolTable symbolTable(moduleOp);
 
     RewritePatternSet patterns(context);
@@ -514,9 +637,19 @@ class PadLinalgOpsPass : public PadLinalgOpsBase<PadLinalgOpsPass> {
     //   return signalPassFailure();
     // }
 
+    // patterns.clear();
+    // patterns.insert<PadTransposeOp>(context, paddingSize);
+    // llvm::dbgs() << "runOnOperation() -- applying PadTransposeOp pattern\n";
+    // if (failed(applyPatternsAndFoldGreedily(getOperation(),
+    //                                         std::move(patterns)))) {
+    //   return signalPassFailure();
+    // }
+
+
     patterns.clear();
-    patterns.insert<PadTransposeOp>(context, paddingSize);
-    llvm::dbgs() << "runOnOperation() -- applying PadTransposeOp pattern\n";
+    patterns.insert<BubbleUpPad>(context, paddingSize);
+    patterns.insert<BubbleDownExtract>(context, paddingSize);
+    llvm::dbgs() << "runOnOperation() -- applying BubbleUpPad + BubbleDownExtract patterns\n";
     if (failed(applyPatternsAndFoldGreedily(getOperation(),
                                             std::move(patterns)))) {
       return signalPassFailure();
