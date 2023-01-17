@@ -362,6 +362,7 @@ class BubbleUpPad : public OpRewritePattern<tensor::PadOp> {
 
       llvm::dbgs() << "BubbleUpPad: This is our starting pad on Linalg: \n";
       padOp.dump();
+      llvm::dbgs() << "Producer linalg: \n";
       producerLinalgOp.dump();
       llvm::dbgs() << "\n";
 
@@ -370,8 +371,9 @@ class BubbleUpPad : public OpRewritePattern<tensor::PadOp> {
           producerLinalgOp.getDpsInitOperand(0));
 
       producerLinalgOp.getDpsInitOperand(0)->get().dump();
-producerLinalgOp.getMatchingIndexingMap(
-          producerLinalgOp.getDpsInitOperand(0)).dump();
+      producerLinalgOp
+          .getMatchingIndexingMap(producerLinalgOp.getDpsInitOperand(0))
+          .dump();
       // Output maps should always be identities...
       if (!resultAffineMap.isIdentity()) {
         llvm::dbgs() << "output of linalg is not identity \n";
@@ -379,7 +381,8 @@ producerLinalgOp.getMatchingIndexingMap(
                                            "output of linalg is not identity");
       }
 
-      // auto resultPaddedShape = padOp.getType().cast<RankedTensorType>().getShape();
+      // auto resultPaddedShape =
+      // padOp.getType().cast<RankedTensorType>().getShape();
 
       // The old pad is after the transpose feeding into matmul
       auto oldHiPad = padOp.getMixedHighPad();
@@ -390,37 +393,51 @@ producerLinalgOp.getMatchingIndexingMap(
 
       // Map the padded shape of the output to the
       SmallVector<int64_t> inputPaddedShapes;
-      for (OpOperand* opOperand : producerLinalgOp.getDpsInputOperands()) {
+      SmallVector<Value> paddedOperands;
+      llvm::dbgs() << "size of inputs: " << producerLinalgOp.getInputs().size() << "\n";
+      for (auto* opOperand : llvm::concat<OpOperand*>(producerLinalgOp.getDpsInputOperands(), producerLinalgOp.getDpsInitOperands())) {
         AffineMap operandMap = producerLinalgOp.getMatchingIndexingMap(opOperand);
         ArrayRef<int64_t> opShape = producerLinalgOp.getShape(opOperand);
         SmallVector<int64_t> inputPaddedShape(opShape.begin(), opShape.end());
-
-
         llvm::dbgs() << "Inspecting opOperand with shape: " << opShape[0] << ", " << opShape[1] << "\n";
         operandMap.dump();
         for (auto en : enumerate(operandMap.getResults())) {
           unsigned pos = en.value().cast<AffineDimExpr>().getPosition();
           unsigned index = en.index();
-          newHiPad[pos] = oldHiPad[index];
-          newShape[pos] = oldPadShape[index];
+          //TODO: Note these may be flipped
+          newHiPad[index] = oldHiPad[pos];
+          newShape[index] = oldPadShape[pos];
           llvm::dbgs() << "AffineMap: index " << index << " maps to pos " << pos << "\n";
         }
+
+        auto newPadResultType =
+            RankedTensorType::get(newShape, oldPadType.getElementType());
+        auto paddedOpOperand = rewriter.create<tensor::PadOp>(
+            padOp.getLoc(), newPadResultType, opOperand->get(),
+            padOp.getMixedLowPad(), newHiPad, padOp.getConstantPaddingValue());
+
+        paddedOperands.push_back(paddedOpOperand);
       }
 
+      // Clone linalgOp to paddedOp with padded input/output shapes.
+      auto resultTensorTypes = ValueRange(paddedOperands)
+                                   .take_back(producerLinalgOp.getNumDpsInits())
+                                   .getTypes();
+      linalg::LinalgOp paddedLinalgOp = mlir::clone(
+          rewriter, producerLinalgOp, resultTensorTypes, paddedOperands);
 
+      SmallVector<Value> paddedResults(paddedLinalgOp->getResults());
+
+      llvm::dbgs() << "Resulting padded linalg:  \n";
+      paddedLinalgOp.dump();
+
+      // Replace the consumer of the original pad with the padded output.
+      rewriter.replaceOp(padOp, paddedResults);
+      return success();
     }
     else if(auto producerLinalgOp = dyn_cast<tensor::ReshapeOp>(operandProducer)) {
 
     }
-
-    // auto producerLinalgOp = dyn_cast_or_null<linalg::LinalgOp>(
-    //     padOp.getOperand(0).getDefiningOp());
-    // if (!producerLinalgOp) {
-    //   return rewriter.notifyMatchFailure(padOp, "producer is not linalg");
-    // }
-
-
-
     return failure();
   }
 
@@ -435,17 +452,95 @@ class BubbleDownExtract : public OpRewritePattern<tensor::ExtractSliceOp> {
                                 PatternRewriter &rewriter) const override {
   //  Location loc = padOp.getLoc();
 
-    Operation *operandConsumer = extractSliceOp.getOperand(0).getDefiningOp();
-    operandConsumer->dump();
-    auto consumerLinalgOp = dyn_cast_or_null<linalg::LinalgOp>(
-        extractSliceOp.getResult().getDefiningOp());
-    if (!consumerLinalgOp) {
-      return rewriter.notifyMatchFailure(extractSliceOp, "consumer is not linalg");
+    if (!extractSliceOp.hasZeroOffset()) {
+      return rewriter.notifyMatchFailure(extractSliceOp, "expected zero offset");
     }
-
     llvm::dbgs() << "BubbleDownExtract: This is our starting extract slice: \n";
     extractSliceOp.dump();
-    consumerLinalgOp.dump();
+
+    for (auto extractUser : extractSliceOp.getResult().getUsers()) {
+    extractUser->dump();
+        if (auto consumerLinalgOp = dyn_cast<linalg::GenericOp>(extractUser)) {
+            llvm::dbgs() << "BubbleDownExtract: looking at linalg \n";
+
+        }
+        else if (auto consumerExpandShapeOp = dyn_cast<tensor::ExpandShapeOp>(extractUser)) {
+            llvm::dbgs() << "BubbleDownExtract: looking at expand shape \n";
+          // Determine which indices were extracted, see if they match any reassociation indices that are greater than 1?
+          SmallVector<bool> extractedIndices;
+          RankedTensorType inputType = extractSliceOp.getSource().getType().cast<RankedTensorType>();
+          RankedTensorType outputType = extractSliceOp.getResult().getType().cast<RankedTensorType>();
+          for (auto [inputDim, outputDim] : llvm::zip(inputType.getShape(), outputType.getShape())) {
+            extractedIndices.push_back(inputDim != outputDim);
+          }
+
+          if (!inputType.hasStaticShape() || !outputType.hasStaticShape()) {
+              return rewriter.notifyMatchFailure(extractSliceOp, "Need static shapes");
+          }
+
+          // It is not possible to pass through an extract slice if modified indices are reassociated.
+          // This check ensures only extract slice dims are passed through unmodified making the rewrite possible
+          auto reassociationIndices = consumerExpandShapeOp.getReassociationIndices();
+          for (auto [index, reassociation] : llvm::enumerate(reassociationIndices)) {
+            if (extractedIndices[index] && reassociation.size() != 1) {
+              return rewriter.notifyMatchFailure(extractSliceOp, "Cannot p ass extract slice through expand shape with reassociated index");
+            }
+          }
+          // Special case: if the expand shape simply adds a leading batch dim
+          // of 1, simply rewrite the extract slice to use that batch dim
+          if (llvm::all_of(llvm::zip(reassociationIndices[0],
+                                     SmallVector<int64_t>(0, 1)),
+                           [](std::tuple<int64_t, int64_t> it) {
+                             return std::get<0>(it) == std::get<1>(it);
+                           }) &&
+              consumerExpandShapeOp.getResultType().getShape().size() == outputType.getShape().size() + 1) {
+            llvm::dbgs() << "BubbleDownExtract: Made it this far! \n";
+
+
+            // Setup the new expanded shape by applying the extract slice diff to the original expanded shape.
+            SmallVector<int64_t> newExpandedShape(consumerExpandShapeOp.getResultType().getShape().begin(), consumerExpandShapeOp.getResultType().getShape().end());
+            for (auto [index, extracted] : llvm::enumerate(extractedIndices)) {
+              if (extracted) {
+                newExpandedShape[index] = inputType.getDimSize(index);
+              }
+            }
+            RankedTensorType newExpandedShapeType = RankedTensorType::get(
+                newExpandedShape, inputType.getElementType());
+
+            // Generate updated expand shape op
+            Value newExpandedShapeResult =
+                rewriter.create<tensor::ExpandShapeOp>(
+                    extractSliceOp.getLoc(),
+                    /*result type=*/newExpandedShapeType,
+                    /*src=*/extractSliceOp.getSource(),
+                    /*reassociation=*/consumerExpandShapeOp.getReassociation());
+
+             // Following this special case: extract slice dimensions are the same with the additional leading batch dimensions. This should pass through the extract transparently.
+             auto offsets = extractSliceOp.getMixedOffsets();
+             auto sizes = extractSliceOp.getMixedSizes();
+             auto strides = extractSliceOp.getMixedStrides();
+             offsets.insert(0, rewriter.createOrFold<arith::ConstantIntOp>(0));
+             sizes.insert(0, 1);
+             strides.insert(0, 1);
+
+             Value newExtractSliceOp = rewriter.create<tensor::ExtractSliceOp>(extractSliceOp.getLoc(), newExpandedShapeResult, offsets, sizes, strides);
+
+            return success();
+          } else {
+            llvm::dbgs() << "BubbleDownExtract: check fail \n";
+            llvm::dbgs() << reassociationIndices[0][0] << " " << reassociationIndices[0][1] << "\n";
+            llvm::dbgs() << outputType.getShape().size() << "\n";
+            return rewriter.notifyMatchFailure(extractSliceOp, "unable to use special case for extractslice");
+          }
+        }
+    }
+    // auto consumerLinalgOp = dyn_cast_or_null<linalg::LinalgOp>(
+    //     extractSliceOp.getResult().getDefiningOp());
+    // if (!consumerLinalgOp) {
+    //   return rewriter.notifyMatchFailure(extractSliceOp, "consumer is not linalg");
+    // }
+
+
     llvm::dbgs() << "\n";
 
 
@@ -647,7 +742,7 @@ class PadLinalgOpsPass : public PadLinalgOpsBase<PadLinalgOpsPass> {
 
 
     patterns.clear();
-    patterns.insert<BubbleUpPad>(context, paddingSize);
+    // patterns.insert<BubbleUpPad>(context, paddingSize);
     patterns.insert<BubbleDownExtract>(context, paddingSize);
     llvm::dbgs() << "runOnOperation() -- applying BubbleUpPad + BubbleDownExtract patterns\n";
     if (failed(applyPatternsAndFoldGreedily(getOperation(),
