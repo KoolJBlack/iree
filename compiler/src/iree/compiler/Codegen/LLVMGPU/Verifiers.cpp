@@ -8,6 +8,7 @@
 #include "iree/compiler/Codegen/Passes.h"
 #include "iree/compiler/Codegen/Utils/GPUUtils.h"
 #include "mlir/Dialect/Linalg/Passes.h"
+#include "llvm/Support/Debug.h"
 
 namespace mlir {
 namespace iree_compiler {
@@ -88,6 +89,14 @@ LogicalResult verifyGPUMatmulSimtPassPipeline(
   }
 
   return success();
+}
+
+static void printArray(ArrayRef<int64_t> arrayToPrint, int64_t count) {
+  llvm::dbgs() << "(";
+  for(int i = 0; i < count; ++i) {
+    llvm::dbgs() <<  arrayToPrint[i] << ",";
+  }
+  llvm::dbgs() << ")\n";
 }
 
 LogicalResult verifyGPUMatmulTensorCorePipeline(
@@ -179,6 +188,13 @@ LogicalResult verifyGPUMatmulTensorCorePipeline(
       firstLevelTileSizes[0] / workgroupSize[1],
       firstLevelTileSizes[1] / (workgroupSize[0] / kWarpSize),
       firstLevelTileSizes[2]};
+
+  llvm::dbgs() << "Workgroup size (I specify): \n";
+  printArray(workgroupSize, workgroupSize.size());
+  llvm::dbgs() << "First level tiling size (I specify as tile size): \n";
+  printArray(firstLevelTileSizes, firstLevelTileSizes.size());
+  llvm::dbgs() << "Second level tiling size: \n";
+  printArray(secondLevelTileSizes, secondLevelTileSizes.size());
 
   // Verify the TensorCore size divides the second level tile size
   SmallVector<int64_t, 3> tensorCoreSize({16, 16, 8});
