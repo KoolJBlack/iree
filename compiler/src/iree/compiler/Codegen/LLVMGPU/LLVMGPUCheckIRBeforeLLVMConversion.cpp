@@ -70,6 +70,7 @@ static LogicalResult checkGPUAllocationSize(func::FuncOp funcOp) {
     }
     cumSize += allocSize / 8;
   }
+  llvm::dbgs() << "The shared mem allocation size is: " << cumSize << "\n";
   if (cumSize > clMaxGPUSharedMemSize) {
     return funcOp.emitOpError("exceeded GPU memory limit of ")
            << clMaxGPUSharedMemSize.getValue() << " bytes for function. Got "

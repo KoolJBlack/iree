@@ -159,8 +159,8 @@ void addGPUMatmulSimtPassPipeline(OpPassManager &pm) {
   auto &nestedModulePM = pm.nest<ModuleOp>();
 
   nestedModulePM.addPass(createCanonicalizerPass());
-  nestedModulePM.addNestedPass<func::FuncOp>(
-      createWorkgroupSpecializationPass());
+//   nestedModulePM.addNestedPass<func::FuncOp>(
+//       createWorkgroupSpecializationPass());
   nestedModulePM.addPass(createCanonicalizerPass());
   nestedModulePM.addPass(createCSEPass());
 

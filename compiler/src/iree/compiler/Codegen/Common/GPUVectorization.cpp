@@ -82,6 +82,8 @@ struct GPUVectorizationPass
     auto funcOp = getOperation();
     MLIRContext *context = &getContext();
 
+    llvm::dbgs() << "GPUVectorizationPass\n";
+
     // Pre-process convolution ops.
     RewritePatternSet decompositionPattern(context);
     linalg::populateDecomposeConvolutionPatterns(decompositionPattern);
